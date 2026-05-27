@@ -31,8 +31,13 @@ Encrypted payloads keep their detected extension and append `.enc`.
 npm install
 npm test
 npm run build
+npm run pack
+npm run dist:win
+npm run dist:mac
 npm run dev
 ```
+
+Distribution artifacts are written to `release/`. Windows installers can be built on Windows with `npm run dist:win`; macOS DMG/ZIP artifacts should be built on macOS with `npm run dist:mac`. The included GitHub Actions workflow builds both platforms from tags or manual dispatch.
 
 ## Notes
 
