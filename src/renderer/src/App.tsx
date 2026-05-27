@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EngineStatus, SyncEvent } from '../../shared/ipc';
+import tanLogo from './assets/tan-logo.jpeg';
 
 const initialStatus: EngineStatus = {
   active: false,
@@ -149,7 +150,9 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
     <aside className="flex min-w-0 flex-col justify-between border-r border-fuchsia-400/20 pr-6">
       <div>
         <div className="mb-10">
-          <div className="pixel-logo text-[54px] font-black leading-none tracking-[0.08em] text-tanPurple">) TAN</div>
+          <div className="logo-frame overflow-hidden border border-fuchsia-400/30 bg-black shadow-neonPurple">
+            <img src={tanLogo} alt=") TAN" className="block h-auto w-full" />
+          </div>
           <p className="mt-3 text-xs uppercase tracking-[0.32em] text-cyan-200/80">Verification Vault Interface</p>
         </div>
 
