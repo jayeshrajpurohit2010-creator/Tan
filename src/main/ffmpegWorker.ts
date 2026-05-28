@@ -1,0 +1,58 @@
+import { parentPort, workerData } from 'node:worker_threads';
+import { createConcatFile } from './stream-reconstitution';
+
+interface WorkerInput {
+  segments: string[];
+  outputPath: string;
+}
+
+async function run(): Promise<void> {
+  try {
+    const { segments, outputPath } = workerData as WorkerInput;
+
+    let ffmpegPath: string;
+    try {
+      const ffmpeg = await import('fluent-ffmpeg');
+      const ffmpegStatic = await import('ffmpeg-static');
+      ffmpegPath = ffmpegStatic.default || (ffmpegStatic as unknown as string);
+      if (ffmpegPath) {
+        ffmpeg.default.setFfmpegPath(ffmpegPath);
+      }
+    } catch {
+      ffmpegPath = 'ffmpeg';
+    }
+
+    const concatFile = await createConcatFile(segments);
+    const ffmpeg = await import('fluent-ffmpeg');
+
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg.default()
+        .input(concatFile)
+        .inputOptions(['-f', 'concat', '-safe', '0'])
+        .outputOptions([
+          '-c:v', 'libx264',
+          '-preset', 'medium',
+          '-crf', '18',
+          '-c:a', 'aac',
+          '-b:a', '192k',
+          '-movflags', '+faststart',
+        ])
+        .output(outputPath)
+        .on('end', () => resolve())
+        .on('error', (err: Error) => reject(err))
+        .run();
+    });
+
+    const { unlink } = await import('node:fs/promises');
+    await unlink(concatFile).catch(() => {});
+
+    parentPort?.postMessage({ success: true });
+  } catch (error) {
+    parentPort?.postMessage({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+run();

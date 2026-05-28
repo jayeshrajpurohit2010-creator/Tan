@@ -6,6 +6,7 @@ export type EncryptionRequest = {
 export type ActivationRequest = {
   url: string;
   encryption: EncryptionRequest;
+  stealth: StealthConfig;
 };
 
 export type ViewportBounds = {
@@ -22,6 +23,8 @@ export type EngineStatus = {
   vaultRoot?: string;
   queueDepth: number;
   message?: string;
+  stealthEnabled: boolean;
+  reconstitutionEnabled: boolean;
 };
 
 export type SyncEvent = {
@@ -39,6 +42,44 @@ export type SyncEvent = {
   error?: string;
 };
 
+export type ReconstitutionEvent = {
+  streamId: string;
+  segments: number;
+  outputPath: string;
+  totalBytes: number;
+  duration?: number;
+  error?: string;
+  timestamp: string;
+};
+
+export type StealthConfig = {
+  enabled: boolean;
+  spoofWebdriver: boolean;
+  spoofHardwareConcurrency: boolean;
+  spoofWebgl: boolean;
+  spoofPlugins: boolean;
+  spoofPlatform: boolean;
+};
+
+export const DEFAULT_STEALTH_CONFIG: StealthConfig = {
+  enabled: true,
+  spoofWebdriver: true,
+  spoofHardwareConcurrency: true,
+  spoofWebgl: true,
+  spoofPlugins: true,
+  spoofPlatform: true,
+};
+
+export type GalleryEntry = {
+  id: string;
+  url: string;
+  mimeType: string;
+  bytes: number;
+  savedPath: string;
+  timestamp: string;
+  thumbnailPath?: string;
+};
+
 export type TanApi = {
   activate(request: ActivationRequest): Promise<EngineStatus>;
   deactivate(): Promise<EngineStatus>;
@@ -46,4 +87,6 @@ export type TanApi = {
   openVault(): Promise<void>;
   onStatus(callback: (status: EngineStatus) => void): () => void;
   onSyncEvent(callback: (event: SyncEvent) => void): () => void;
+  onReconstitutionEvent(callback: (event: ReconstitutionEvent) => void): () => void;
+  openFile(path: string): Promise<void>;
 };

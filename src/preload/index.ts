@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ActivationRequest, EngineStatus, SyncEvent, TanApi, ViewportBounds } from '../shared/ipc';
+import type { ActivationRequest, EngineStatus, SyncEvent, ReconstitutionEvent, TanApi, ViewportBounds } from '../shared/ipc';
 
 const api: TanApi = {
   activate(request: ActivationRequest) {
@@ -14,6 +14,9 @@ const api: TanApi = {
   openVault() {
     return ipcRenderer.invoke('tan:open-vault');
   },
+  openFile(path: string) {
+    return ipcRenderer.invoke('tan:open-file', path);
+  },
   onStatus(callback: (status: EngineStatus) => void) {
     const listener = (_event: Electron.IpcRendererEvent, status: EngineStatus) => callback(status);
     ipcRenderer.on('tan:status', listener);
@@ -23,7 +26,12 @@ const api: TanApi = {
     const listener = (_event: Electron.IpcRendererEvent, syncEvent: SyncEvent) => callback(syncEvent);
     ipcRenderer.on('tan:sync-event', listener);
     return () => ipcRenderer.off('tan:sync-event', listener);
-  }
+  },
+  onReconstitutionEvent(callback: (event: ReconstitutionEvent) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, event: ReconstitutionEvent) => callback(event);
+    ipcRenderer.on('tan:reconstitution-event', listener);
+    return () => ipcRenderer.off('tan:reconstitution-event', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('tan', api);

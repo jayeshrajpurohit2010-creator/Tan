@@ -11,6 +11,7 @@ type CaptureControllerOptions = {
   vaultRoot: string;
   onStatus(status: EngineStatus): void;
   onSyncEvent(event: SyncEvent): void;
+  onPayloadPersisted(filePath: string): void;
 };
 
 type NetworkResponseReceived = {
@@ -64,7 +65,9 @@ export class CaptureController {
       url: this.endpointUrl,
       vaultRoot: this.options.vaultRoot,
       queueDepth: this.queue.depth,
-      message
+      message,
+      stealthEnabled: true,
+      reconstitutionEnabled: true,
     };
   }
 
@@ -75,7 +78,7 @@ export class CaptureController {
     this.persister = new PayloadPersister({
       root: this.options.vaultRoot,
       endpointUrl: this.endpointUrl,
-      encryption: request.encryption
+      encryption: request.encryption,
     });
     this.responses.clear();
     this.requestMethods.clear();
@@ -95,7 +98,7 @@ export class CaptureController {
     await debuggee.sendCommand('Network.enable', {
       maxTotalBufferSize: 1024 * 1024 * 1024,
       maxResourceBufferSize: 512 * 1024 * 1024,
-      maxPostDataSize: 64 * 1024 * 1024
+      maxPostDataSize: 64 * 1024 * 1024,
     });
 
     this.mode = 'active';
@@ -138,7 +141,7 @@ export class CaptureController {
         statusText: response.response.statusText,
         mimeType: response.response.mimeType || 'application/octet-stream',
         headers: response.response.headers ?? {},
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
       this.responses.set(response.requestId, received);
       return;
@@ -181,7 +184,7 @@ export class CaptureController {
 
     try {
       const body = await this.target.debugger.sendCommand('Network.getResponseBody', {
-        requestId: response.requestId
+        requestId: response.requestId,
       });
       const buffer = decodeCdpBody(body as { body: string; base64Encoded: boolean });
       this.queue.enqueue(async () => {
@@ -189,6 +192,9 @@ export class CaptureController {
           const record = await this.persister?.persist(response, buffer);
           if (record) {
             this.options.onSyncEvent(toSyncEvent(record, this.queue.depth));
+            if (record.savedPath) {
+              this.options.onPayloadPersisted(record.savedPath);
+            }
           }
         } catch (error) {
           const record = await this.persister?.persistError(response, error);
@@ -221,7 +227,6 @@ export class CaptureController {
       try {
         this.target.debugger.detach();
       } catch {
-        // Detach can throw if Chromium already tore the target down.
       }
     }
   }
@@ -244,19 +249,22 @@ function normalizeEndpointUrl(value: string): string {
   return `https://${trimmed}`;
 }
 
-function toSyncEvent(record: {
-  id: string;
-  url: string;
-  method?: string;
-  status?: number;
-  mimeType: string;
-  bytes: number;
-  sha256?: string;
-  savedPath?: string;
-  encrypted: boolean;
-  timestamp: string;
-  error?: string;
-}, queueDepth: number): SyncEvent {
+function toSyncEvent(
+  record: {
+    id: string;
+    url: string;
+    method?: string;
+    status?: number;
+    mimeType: string;
+    bytes: number;
+    sha256?: string;
+    savedPath?: string;
+    encrypted: boolean;
+    timestamp: string;
+    error?: string;
+  },
+  queueDepth: number,
+): SyncEvent {
   return {
     id: record.id,
     url: record.url,
@@ -269,6 +277,6 @@ function toSyncEvent(record: {
     encrypted: record.encrypted,
     timestamp: record.timestamp,
     queueDepth,
-    error: record.error
+    error: record.error,
   };
 }

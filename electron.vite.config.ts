@@ -7,25 +7,31 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: resolve(__dirname, 'src/main/index.ts')
-      }
-    }
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          ffmpegWorker: resolve(__dirname, 'src/main/ffmpegWorker.ts'),
+        },
+        output: {
+          entryFileNames: '[name].js',
+        },
+      },
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: resolve(__dirname, 'src/preload/index.ts')
-      }
-    }
+        input: resolve(__dirname, 'src/preload/index.ts'),
+      },
+    },
   },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
     plugins: [react()],
     resolve: {
       alias: {
-        '@renderer': resolve(__dirname, 'src/renderer/src')
-      }
-    }
-  }
+        '@renderer': resolve(__dirname, 'src/renderer/src'),
+      },
+    },
+  },
 });

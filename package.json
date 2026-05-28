@@ -1,7 +1,7 @@
 {
   "name": "tan",
-  "version": "0.1.0",
-  "description": "Tan desktop synchronizer for high-fidelity local persistence of network response payloads.",
+  "version": "1.0.0",
+  "description": "Universal Web Traffic Forensics & Real-Time Payload Reconstitution Suite",
   "main": "out/main/index.js",
   "author": "jayeshrajpurohit2010-creator",
   "scripts": {
@@ -16,10 +16,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "fluent-ffmpeg": "^2.1.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.24",
     "@types/node": "^20.14.10",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
