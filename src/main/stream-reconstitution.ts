@@ -5,8 +5,8 @@ import { join, basename, dirname, extname } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { createHash } from 'node:crypto';
 
-const STREAM_WINDOW_MS = 30_000;
-const RECONSTITUTION_INTERVAL_MS = 10_000;
+const IDLE_WATCHDOG_MS = 5_000;
+const WATCHDOG_POLL_MS = 1_000;
 
 export type ReconstitutionEvent = {
   streamId: string;
@@ -25,6 +25,7 @@ export type StreamGroup = {
   firstSeen: number;
   lastSeen: number;
   totalBytes: number;
+  finalizing: boolean;
 };
 
 export class StreamReconstitutionEngine {
@@ -33,6 +34,7 @@ export class StreamReconstitutionEngine {
   private timer: NodeJS.Timeout | undefined;
   private onEvent: (event: ReconstitutionEvent) => void;
   private activeEndpoint: string | undefined;
+  private processing = false;
 
   constructor(onEvent: (event: ReconstitutionEvent) => void) {
     this.vaultRoot = join(app.getPath('downloads'), 'Tan');
@@ -59,9 +61,11 @@ export class StreamReconstitutionEngine {
 
     const existing = this.streams.get(streamId);
     if (existing) {
-      existing.segments.push(filePath);
+      if (!existing.segments.includes(filePath)) {
+        existing.segments.push(filePath);
+      }
       existing.lastSeen = Date.now();
-      existing.totalBytes += 0;
+      void this.refreshSegmentBytes(existing, filePath);
     } else {
       this.streams.set(streamId, {
         streamId,
@@ -70,12 +74,19 @@ export class StreamReconstitutionEngine {
         firstSeen: Date.now(),
         lastSeen: Date.now(),
         totalBytes: 0,
+        finalizing: false,
       });
+      void this.refreshSegmentBytes(this.streams.get(streamId)!, filePath);
     }
   }
 
   start(): void {
-    this.timer = setInterval(() => this.processStreams(), RECONSTITUTION_INTERVAL_MS);
+    if (this.timer) {
+      return;
+    }
+    this.timer = setInterval(() => {
+      void this.processStreams();
+    }, WATCHDOG_POLL_MS);
   }
 
   stop(): void {
@@ -86,10 +97,19 @@ export class StreamReconstitutionEngine {
   }
 
   async flushAll(): Promise<void> {
-    const pending = Array.from(this.streams.values());
+    const pending = Array.from(this.streams.values()).filter((group) => !group.finalizing);
     this.streams.clear();
     for (const group of pending) {
       await this.reconstitute(group);
+    }
+  }
+
+  private async refreshSegmentBytes(group: StreamGroup, filePath: string): Promise<void> {
+    try {
+      const segStat = await stat(filePath);
+      group.totalBytes += segStat.size;
+    } catch {
+      // Forensic logging tolerates transient stat failures during segment registration.
     }
   }
 
@@ -103,22 +123,37 @@ export class StreamReconstitutionEngine {
   }
 
   private async processStreams(): Promise<void> {
-    const now = Date.now();
-    const ready: string[] = [];
-
-    for (const [streamId, group] of this.streams) {
-      if (now - group.lastSeen > STREAM_WINDOW_MS && group.segments.length >= 2) {
-        ready.push(streamId);
-      }
+    if (this.processing) {
+      return;
     }
 
-    for (const streamId of ready) {
-      const group = this.streams.get(streamId);
-      if (!group) {
-        continue;
+    this.processing = true;
+    try {
+      const now = Date.now();
+      const ready: string[] = [];
+
+      for (const [streamId, group] of this.streams) {
+        if (group.finalizing) {
+          continue;
+        }
+
+        const idleDuration = now - group.lastSeen;
+        if (idleDuration >= IDLE_WATCHDOG_MS && group.segments.length >= 1) {
+          ready.push(streamId);
+        }
       }
-      this.streams.delete(streamId);
-      await this.reconstitute(group);
+
+      for (const streamId of ready) {
+        const group = this.streams.get(streamId);
+        if (!group || group.finalizing) {
+          continue;
+        }
+        group.finalizing = true;
+        this.streams.delete(streamId);
+        await this.reconstitute(group);
+      }
+    } finally {
+      this.processing = false;
     }
   }
 
@@ -150,11 +185,17 @@ export class StreamReconstitutionEngine {
         } catch {}
       }
 
+      let outputBytes = 0;
+      try {
+        const outputStat = await stat(outputPath);
+        outputBytes = outputStat.size;
+      } catch {}
+
       const event: ReconstitutionEvent = {
         streamId: group.streamId,
         segments: group.segments.length,
         outputPath,
-        totalBytes,
+        totalBytes: outputBytes || totalBytes,
         timestamp: new Date().toISOString(),
       };
 
@@ -164,7 +205,7 @@ export class StreamReconstitutionEngine {
         streamId: group.streamId,
         segments: group.segments.length,
         outputPath: '',
-        totalBytes: 0,
+        totalBytes: group.totalBytes,
         error: error instanceof Error ? error.message : String(error),
         timestamp: new Date().toISOString(),
       });
@@ -187,47 +228,58 @@ export class StreamReconstitutionEngine {
   private resolveWorkerPath(): string {
     const candidates = [
       join(__dirname, 'ffmpegWorker.js'),
-      join(__dirname, 'ffmpegWorker.ts'),
       join(__dirname, '../main/ffmpegWorker.js'),
-      join(__dirname, '../main/ffmpegWorker.ts'),
     ];
-    for (const p of candidates) {
-      if (existsSync(p)) return p;
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        return candidate;
+      }
     }
     return join(__dirname, 'ffmpegWorker.js');
   }
 
   private async runFfmpegConcat(segments: string[], outputPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      };
+
       try {
-        const workerPath = this.resolveWorkerPath();
-        const worker = new Worker(workerPath, {
+        const worker = new Worker(this.resolveWorkerPath(), {
           workerData: { segments, outputPath },
         });
+
         worker.on('message', (msg: { success: boolean; error?: string }) => {
           if (msg.success) {
-            resolve();
+            finish();
           } else {
-            reject(new Error(msg.error ?? 'FFmpeg worker failed'));
+            finish(new Error(msg.error ?? 'FFmpeg worker failed'));
           }
         });
-        worker.on('error', reject);
+        worker.on('error', (error) => finish(error));
         worker.on('exit', (code) => {
           if (code !== 0) {
-            reject(new Error(`FFmpeg worker exited with code ${code}`));
-          } else {
-            resolve();
+            finish(new Error(`FFmpeg worker exited with code ${code}`));
           }
         });
       } catch (error) {
-        reject(error);
+        finish(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
 }
 
 export async function createConcatFile(segments: string[]): Promise<string> {
-  const lines = segments.map((s) => `file '${s.replace(/'/g, "'\\''")}'`);
+  const lines = segments.map((segment) => `file '${segment.replace(/'/g, "'\\''")}'`);
   const content = lines.join('\n');
   const hash = createHash('md5').update(content).digest('hex').slice(0, 8);
   const concatPath = join(app.getPath('temp'), `tan_concat_${hash}.txt`);

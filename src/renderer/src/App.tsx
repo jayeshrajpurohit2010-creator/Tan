@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { EngineStatus, SyncEvent, ReconstitutionEvent, StealthConfig } from '../../shared/ipc';
-import { DEFAULT_STEALTH_CONFIG } from '../../shared/ipc';
+import { DEFAULT_STEALTH_CONFIG, PRIMARY_AUDIT_ENDPOINT } from '../../shared/ipc';
 import Logo from './components/Logo';
 import LiveCaptureGallery from './components/LiveCaptureGallery';
 
@@ -10,11 +10,12 @@ const initialStatus: EngineStatus = {
   queueDepth: 0,
   stealthEnabled: true,
   reconstitutionEnabled: true,
+  cdpAttached: false,
 };
 
 function App(): JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const [url, setUrl] = useState('https://example.com');
+  const [url, setUrl] = useState(PRIMARY_AUDIT_ENDPOINT);
   const [encryptionEnabled, setEncryptionEnabled] = useState(false);
   const [passphrase, setPassphrase] = useState('');
   const [status, setStatus] = useState<EngineStatus>(initialStatus);
@@ -23,9 +24,47 @@ function App(): JSX.Element {
   const [error, setError] = useState<string | undefined>();
   const [stealthConfig, setStealthConfig] = useState<StealthConfig>(DEFAULT_STEALTH_CONFIG);
   const [showStealthPanel, setShowStealthPanel] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
 
   const isBusy = status.mode === 'arming' || status.mode === 'flushing';
+  const syncEngineLive = status.active && status.cdpAttached && status.mode === 'active';
   const latestBytes = useMemo(() => events.reduce((total, event) => total + event.bytes, 0), [events]);
+
+  useEffect(() => {
+    void window.tan.getConfig().then((config) => {
+      setUrl(config.primaryAuditEndpoint);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (bootstrapped || isBusy) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const nextStatus = await window.tan.activate({
+            url,
+            encryption: {
+              enabled: encryptionEnabled,
+              passphrase: encryptionEnabled ? passphrase : undefined,
+            },
+            stealth: stealthConfig,
+          });
+          setStatus(nextStatus);
+          setPassphrase('');
+        } catch (caught) {
+          const message = caught instanceof Error ? caught.message : String(caught);
+          setError(message);
+        } finally {
+          setBootstrapped(true);
+        }
+      })();
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+  }, [bootstrapped, encryptionEnabled, isBusy, passphrase, stealthConfig, url]);
 
   useEffect(() => {
     const removeStatus = window.tan.onStatus(setStatus);
@@ -93,7 +132,15 @@ function App(): JSX.Element {
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
       setError(message);
-      setStatus((current) => ({ ...current, active: false, mode: 'error', message, stealthEnabled: true, reconstitutionEnabled: true }));
+      setStatus((current) => ({
+        ...current,
+        active: false,
+        mode: 'error',
+        message,
+        stealthEnabled: true,
+        reconstitutionEnabled: true,
+        cdpAttached: false,
+      }));
     }
   }, [url, encryptionEnabled, passphrase, status.active, stealthConfig]);
 
@@ -106,7 +153,11 @@ function App(): JSX.Element {
       <div className="crt-scanlines pointer-events-none fixed inset-0 z-50" />
       <div className="crt-flicker pointer-events-none fixed inset-0 z-40" />
 
-      <section className="relative grid min-h-screen grid-cols-[340px_minmax(400px,1fr)_360px] gap-5 px-6 py-6">
+      <header className="relative z-10 border-b border-cyan-300/15 px-6 py-3">
+        <StatusBar status={status} syncEngineLive={syncEngineLive} url={url} />
+      </header>
+
+      <section className="relative grid min-h-[calc(100vh-52px)] grid-cols-[340px_minmax(400px,1fr)_360px] gap-5 px-6 py-5">
         <ControlPanel
           url={url}
           setUrl={setUrl}
@@ -129,8 +180,12 @@ function App(): JSX.Element {
           <div className="w-full max-w-[520px]">
             <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.32em] text-cyan-200/80">
               <span>Mobile Desktop Hybrid</span>
-              <span className={status.active ? 'text-cyan-200' : 'text-cyan-200/50'}>
-                {status.active ? '● CDP Bridge Online' : '○ Viewport Standby'}
+              <span className={syncEngineLive ? 'text-green-300' : status.active ? 'text-amber-200' : 'text-cyan-200/50'}>
+                {syncEngineLive
+                  ? '● Sync Engine Active'
+                  : status.active
+                    ? '◐ CDP Attaching'
+                    : '○ Viewport Standby'}
               </span>
             </div>
             <div className="mobile-shell relative mx-auto aspect-[9/19.5] w-full max-w-[430px] overflow-hidden rounded-[28px] border border-fuchsia-400/45 bg-black shadow-neonPurple">
@@ -140,7 +195,11 @@ function App(): JSX.Element {
                 className="absolute inset-[18px] overflow-hidden rounded-[20px] border border-cyan-300/35 bg-black/85"
               >
                 <div className="flex h-full items-center justify-center px-8 text-center text-xs uppercase tracking-[0.26em] text-fuchsia-200/50">
-                  {status.active ? 'Native WebContentsView Layer Active' : 'Activate engine to mount target viewport'}
+                  {syncEngineLive
+                    ? 'Forensic Capture Viewport Online'
+                    : status.active
+                      ? 'Establishing CDP Attachment'
+                      : 'Loading primary audit endpoint'}
                 </div>
               </div>
             </div>
@@ -230,7 +289,7 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
             onClick={() => props.setShowStealthPanel(!props.showStealthPanel)}
             className="flex w-full items-center justify-between px-4 py-3 text-[11px] uppercase tracking-[0.28em] text-cyan-100/80 transition hover:bg-cyan-950/20"
           >
-            <span>Stealth Layer</span>
+            <span>Compliance Layer</span>
             <span className={`text-[10px] ${props.showStealthPanel ? 'text-cyan-200' : 'text-cyan-100/40'}`}>
               {props.showStealthPanel ? '▲' : '▼'}
             </span>
@@ -300,7 +359,8 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
       <div className="terminal-readout mt-6 border border-cyan-300/20 bg-black/50 p-4 text-xs text-cyan-100/80">
         <p>mode: <span className="text-fuchsia-200">{props.status.mode}</span></p>
         <p>queue: <span className="text-cyan-200">{props.status.queueDepth}</span></p>
-        <p>stealth: <span className={props.stealthConfig.enabled ? 'text-green-300' : 'text-red-300'}>{props.stealthConfig.enabled ? 'active' : 'disabled'}</span></p>
+        <p>cdp: <span className={props.status.cdpAttached ? 'text-green-300' : 'text-amber-200'}>{props.status.cdpAttached ? 'attached' : 'detached'}</span></p>
+        <p>compliance: <span className={props.stealthConfig.enabled ? 'text-green-300' : 'text-red-300'}>{props.stealthConfig.enabled ? 'active' : 'disabled'}</span></p>
         <p>vault: <span className="truncate block text-cyan-200/60">{props.status.vaultRoot ?? 'pending'}</span></p>
       </div>
     </aside>
@@ -405,6 +465,56 @@ function TelemetryPanel({
         </div>
       </div>
     </aside>
+  );
+}
+
+function StatusBar({
+  status,
+  syncEngineLive,
+  url,
+}: {
+  status: EngineStatus;
+  syncEngineLive: boolean;
+  url: string;
+}): JSX.Element {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="font-mono text-[11px] uppercase tracking-[0.28em] text-fuchsia-100/80">
+        Tan Forensic Archival Suite
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusPill
+          label="Sync Engine"
+          active={syncEngineLive}
+          pending={status.active && !status.cdpAttached}
+        />
+        <StatusPill label="Reconstitution" active={status.reconstitutionEnabled && status.active} />
+        <StatusPill label="Compliance" active={status.stealthEnabled} />
+        <span className="max-w-[320px] truncate font-mono text-[10px] text-cyan-100/45">{url}</span>
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({
+  label,
+  active,
+  pending = false,
+}: {
+  label: string;
+  active: boolean;
+  pending?: boolean;
+}): JSX.Element {
+  const tone = active
+    ? 'border-green-400/40 bg-green-950/30 text-green-200'
+    : pending
+      ? 'border-amber-400/40 bg-amber-950/20 text-amber-200'
+      : 'border-cyan-300/20 bg-black/40 text-cyan-100/45';
+
+  return (
+    <span className={`border px-2 py-1 font-mono text-[9px] uppercase tracking-wider ${tone}`}>
+      {label}
+    </span>
   );
 }
 

@@ -14,6 +14,9 @@ const api: TanApi = {
   openVault() {
     return ipcRenderer.invoke('tan:open-vault');
   },
+  getConfig() {
+    return ipcRenderer.invoke('tan:get-config');
+  },
   openFile(path: string) {
     return ipcRenderer.invoke('tan:open-file', path);
   },

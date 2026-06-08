@@ -67,6 +67,18 @@ input {
   box-shadow: inset 0 0 28px rgba(34, 211, 238, 0.08);
 }
 
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(34, 211, 238, 0.25);
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.35);
+}
+
 @keyframes flicker {
   0%,
   100% {

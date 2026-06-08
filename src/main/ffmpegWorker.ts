@@ -1,5 +1,6 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { createConcatFile } from './stream-reconstitution';
+import { resolveFfmpegPath } from './paths';
 
 interface WorkerInput {
   segments: string[];
@@ -9,21 +10,11 @@ interface WorkerInput {
 async function run(): Promise<void> {
   try {
     const { segments, outputPath } = workerData as WorkerInput;
-
-    let ffmpegPath: string;
-    try {
-      const ffmpeg = await import('fluent-ffmpeg');
-      const ffmpegStatic = await import('ffmpeg-static');
-      ffmpegPath = ffmpegStatic.default || (ffmpegStatic as unknown as string);
-      if (ffmpegPath) {
-        ffmpeg.default.setFfmpegPath(ffmpegPath);
-      }
-    } catch {
-      ffmpegPath = 'ffmpeg';
-    }
+    const ffmpegPath = resolveFfmpegPath();
+    const ffmpeg = await import('fluent-ffmpeg');
+    ffmpeg.default.setFfmpegPath(ffmpegPath);
 
     const concatFile = await createConcatFile(segments);
-    const ffmpeg = await import('fluent-ffmpeg');
 
     await new Promise<void>((resolve, reject) => {
       ffmpeg.default()

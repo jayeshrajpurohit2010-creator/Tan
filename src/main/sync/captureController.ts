@@ -58,6 +58,10 @@ export class CaptureController {
     this.queue = new NoDropWriteQueue(() => this.emitStatus());
   }
 
+  isCdpAttached(): boolean {
+    return Boolean(this.target?.debugger.isAttached());
+  }
+
   getStatus(message?: string): EngineStatus {
     return {
       active: this.active,
@@ -68,13 +72,24 @@ export class CaptureController {
       message,
       stealthEnabled: true,
       reconstitutionEnabled: true,
+      cdpAttached: this.isCdpAttached(),
     };
   }
 
   async activate(target: WebContents, request: { url: string; encryption: EncryptionSettings }): Promise<EngineStatus> {
+    const endpointUrl = normalizeEndpointUrl(request.url);
+    if (
+      this.active &&
+      this.target === target &&
+      this.endpointUrl === endpointUrl &&
+      this.isCdpAttached()
+    ) {
+      return this.getStatus();
+    }
+
     await this.detachDebugger();
     this.target = target;
-    this.endpointUrl = normalizeEndpointUrl(request.url);
+    this.endpointUrl = endpointUrl;
     this.persister = new PayloadPersister({
       root: this.options.vaultRoot,
       endpointUrl: this.endpointUrl,

@@ -1,7 +1,11 @@
 import { app, BaseWindow, WebContentsView, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
 import type { ActivationRequest, EngineStatus, ViewportBounds, StealthConfig } from '../shared/ipc';
-import { DEFAULT_STEALTH_CONFIG } from '../shared/ipc';
+import {
+  DEFAULT_STEALTH_CONFIG,
+  isHighFidelityEndpoint,
+  PRIMARY_AUDIT_ENDPOINT,
+} from '../shared/ipc';
 import { CaptureController } from './sync/captureController';
 import { StreamReconstitutionEngine } from './stream-reconstitution';
 import { applyStealthToWebContents, STEALTH_SCRIPTS } from './stealth';
@@ -14,11 +18,122 @@ let streamEngine: StreamReconstitutionEngine | undefined;
 let latestViewportBounds: ViewportBounds | undefined;
 let currentStealthConfig: StealthConfig = DEFAULT_STEALTH_CONFIG;
 let reconstitutionEnabled = true;
+let autoArchiveRequest: ActivationRequest = {
+  url: PRIMARY_AUDIT_ENDPOINT,
+  encryption: { enabled: false },
+  stealth: DEFAULT_STEALTH_CONFIG,
+};
+let autoArchiveInFlight = false;
+let cdpStatusTimer: NodeJS.Timeout | undefined;
 
 const minimumViewport: ViewportBounds = { x: 0, y: 0, width: 1, height: 1 };
 
 function sendStatus(status: EngineStatus): void {
   dashboardView?.webContents.send('tan:status', status);
+}
+
+function startCdpStatusSync(): void {
+  stopCdpStatusSync();
+  cdpStatusTimer = setInterval(() => {
+    if (!captureController?.getStatus().active) {
+      return;
+    }
+    sendStatus(captureController.getStatus());
+  }, 1000);
+}
+
+function stopCdpStatusSync(): void {
+  if (cdpStatusTimer) {
+    clearInterval(cdpStatusTimer);
+    cdpStatusTimer = undefined;
+  }
+}
+
+async function engageCaptureController(request: ActivationRequest): Promise<EngineStatus> {
+  if (!targetView || !captureController || !streamEngine) {
+    throw new Error('Tan window is not ready.');
+  }
+
+  if (request.encryption.enabled && !request.encryption.passphrase) {
+    throw new Error('Encryption passphrase is required when encryption is enabled.');
+  }
+
+  currentStealthConfig = request.stealth ?? DEFAULT_STEALTH_CONFIG;
+  applyStealthConfig(targetView.webContents, currentStealthConfig);
+
+  targetView.setVisible(true);
+  applyViewportBounds(latestViewportBounds);
+
+  const status = await captureController.activate(targetView.webContents, request);
+  streamEngine.setEndpoint(request.url);
+  streamEngine.start();
+  startCdpStatusSync();
+  targetView.webContents.focus();
+
+  return {
+    ...status,
+    stealthEnabled: currentStealthConfig.enabled,
+    reconstitutionEnabled,
+    cdpAttached: captureController.isCdpAttached(),
+  };
+}
+
+async function tryAutoArchive(url: string): Promise<void> {
+  if (!isHighFidelityEndpoint(url, autoArchiveRequest.url) || autoArchiveInFlight) {
+    return;
+  }
+
+  if (captureController?.getStatus().active) {
+    sendStatus(captureController.getStatus());
+    return;
+  }
+
+  autoArchiveInFlight = true;
+  try {
+    const status = await engageCaptureController(autoArchiveRequest);
+    sendStatus(status);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    sendStatus({
+      active: false,
+      mode: 'error',
+      queueDepth: captureController?.getStatus().queueDepth ?? 0,
+      message,
+      stealthEnabled: currentStealthConfig.enabled,
+      reconstitutionEnabled,
+      cdpAttached: false,
+    });
+  } finally {
+    autoArchiveInFlight = false;
+  }
+}
+
+function mountTargetViewportListeners(): void {
+  if (!targetView) {
+    return;
+  }
+
+  const webContents = targetView.webContents;
+  const handleNavigation = (_event: Electron.Event, url: string): void => {
+    void tryAutoArchive(url);
+  };
+
+  webContents.on('did-navigate', handleNavigation);
+  webContents.on('did-navigate-in-page', handleNavigation);
+  webContents.on('did-finish-load', () => {
+    void tryAutoArchive(webContents.getURL());
+  });
+}
+
+function preloadPrimaryAuditEndpoint(): void {
+  if (!targetView) {
+    return;
+  }
+
+  applyStealthConfig(targetView.webContents, currentStealthConfig);
+  targetView.setVisible(true);
+  applyViewportBounds(latestViewportBounds);
+  void targetView.webContents.loadURL(PRIMARY_AUDIT_ENDPOINT);
 }
 
 function createWindow(): void {
@@ -71,13 +186,15 @@ function createWindow(): void {
     dashboardView?.webContents.send('tan:reconstitution-event', event);
   });
 
+  mountTargetViewportListeners();
+
   mainWindow.contentView.addChildView(dashboardView);
   mainWindow.contentView.addChildView(targetView);
-  targetView.setVisible(false);
 
   resizeDashboard();
   mainWindow.on('resize', resizeDashboard);
   mainWindow.on('closed', () => {
+    stopCdpStatusSync();
     mainWindow = undefined;
     dashboardView = undefined;
     targetView = undefined;
@@ -90,6 +207,8 @@ function createWindow(): void {
   } else {
     void dashboardView.webContents.loadFile(join(__dirname, '../renderer/index.html'));
   }
+
+  preloadPrimaryAuditEndpoint();
 }
 
 function resizeDashboard(): void {
@@ -142,27 +261,13 @@ function applyStealthConfig(webContents: Electron.WebContents, config: StealthCo
   }
 }
 
+ipcMain.handle('tan:get-config', async () => ({
+  primaryAuditEndpoint: PRIMARY_AUDIT_ENDPOINT,
+}));
+
 ipcMain.handle('tan:activate', async (_event, request: ActivationRequest) => {
-  if (!targetView || !captureController || !streamEngine) {
-    throw new Error('Tan window is not ready.');
-  }
-
-  if (request.encryption.enabled && !request.encryption.passphrase) {
-    throw new Error('Encryption passphrase is required when encryption is enabled.');
-  }
-
-  currentStealthConfig = request.stealth ?? DEFAULT_STEALTH_CONFIG;
-  reconstitutionEnabled = true;
-
-  applyStealthConfig(targetView.webContents, currentStealthConfig);
-
-  targetView.setVisible(true);
-  applyViewportBounds(latestViewportBounds);
-  const status = await captureController.activate(targetView.webContents, request);
-  streamEngine.setEndpoint(request.url);
-  streamEngine.start();
-  targetView.webContents.focus();
-  return { ...status, stealthEnabled: currentStealthConfig.enabled, reconstitutionEnabled };
+  autoArchiveRequest = request;
+  return engageCaptureController(request);
 });
 
 ipcMain.handle('tan:deactivate', async () => {
@@ -170,12 +275,18 @@ ipcMain.handle('tan:deactivate', async () => {
     throw new Error('Tan window is not ready.');
   }
 
+  stopCdpStatusSync();
   streamEngine.stop();
   await streamEngine.flushAll();
   streamEngine.clearEndpoint();
   const status = await captureController.deactivate();
   targetView.setVisible(false);
-  return { ...status, stealthEnabled: currentStealthConfig.enabled, reconstitutionEnabled };
+  return {
+    ...status,
+    stealthEnabled: currentStealthConfig.enabled,
+    reconstitutionEnabled,
+    cdpAttached: false,
+  };
 });
 
 ipcMain.handle('tan:open-vault', async () => {

@@ -16,6 +16,18 @@ export type ViewportBounds = {
   height: number;
 };
 
+export const PRIMARY_AUDIT_ENDPOINT = 'https://example.com';
+
+export function isHighFidelityEndpoint(url: string, designated = PRIMARY_AUDIT_ENDPOINT): boolean {
+  try {
+    const current = new URL(url.trim());
+    const target = new URL(designated.trim());
+    return current.origin === target.origin && current.pathname.startsWith(target.pathname.replace(/\/$/, '') || '/');
+  } catch {
+    return false;
+  }
+}
+
 export type EngineStatus = {
   active: boolean;
   mode: 'idle' | 'arming' | 'active' | 'flushing' | 'error';
@@ -25,6 +37,7 @@ export type EngineStatus = {
   message?: string;
   stealthEnabled: boolean;
   reconstitutionEnabled: boolean;
+  cdpAttached: boolean;
 };
 
 export type SyncEvent = {
@@ -80,11 +93,16 @@ export type GalleryEntry = {
   thumbnailPath?: string;
 };
 
+export type AppConfig = {
+  primaryAuditEndpoint: string;
+};
+
 export type TanApi = {
   activate(request: ActivationRequest): Promise<EngineStatus>;
   deactivate(): Promise<EngineStatus>;
   setViewportBounds(bounds: ViewportBounds): void;
   openVault(): Promise<void>;
+  getConfig(): Promise<AppConfig>;
   onStatus(callback: (status: EngineStatus) => void): () => void;
   onSyncEvent(callback: (event: SyncEvent) => void): () => void;
   onReconstitutionEvent(callback: (event: ReconstitutionEvent) => void): () => void;

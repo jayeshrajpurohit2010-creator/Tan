@@ -1,14 +1,19 @@
-import { app } from 'electron';
+const PRODUCTION_PLATFORM = process.platform === 'darwin' ? 'MacIntel' : process.platform === 'linux' ? 'Linux x86_64' : 'Win32';
 
-export const STEALTH_SCRIPTS = {
+export const COMPLIANCE_LAYER = {
   webdriver: `
     Object.defineProperty(navigator, 'webdriver', {
       get: () => undefined,
       configurable: true,
     });
+    delete Navigator.prototype.webdriver;
   `,
   hardwareConcurrency: `
     Object.defineProperty(navigator, 'hardwareConcurrency', {
+      get: () => 8,
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'deviceMemory', {
       get: () => 8,
       configurable: true,
     });
@@ -16,39 +21,67 @@ export const STEALTH_SCRIPTS = {
   plugins: `
     Object.defineProperty(navigator, 'plugins', {
       get: () => [
-        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
-        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-        { name: 'Native Client', filename: 'internal-nacl-plugin' },
+        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+        { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
       ],
       configurable: true,
     });
   `,
   languages: `
     Object.defineProperty(navigator, 'languages', {
-      get: () => ['en-US', 'en'],
+      get: () => Object.freeze(['en-US', 'en']),
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'language', {
+      get: () => 'en-US',
       configurable: true,
     });
   `,
   platform: `
     Object.defineProperty(navigator, 'platform', {
-      get: () => 'Win32',
+      get: () => '${PRODUCTION_PLATFORM}',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'maxTouchPoints', {
+      get: () => 0,
       configurable: true,
     });
   `,
   webgl: `
     try {
-      const getParameter = WebGLRenderingContext.prototype.getParameter;
-      WebGLRenderingContext.prototype.getParameter = function(param) {
-        if (param === 37445) return 'Intel Inc.';
-        if (param === 37446) return 'Intel Iris OpenGL Engine';
-        return getParameter.call(this, param);
+      const spoof = (proto) => {
+        const original = proto.getParameter;
+        proto.getParameter = function(param) {
+          if (param === 37445) return 'Intel Inc.';
+          if (param === 37446) return 'Intel Iris OpenGL Engine';
+          return original.call(this, param);
+        };
       };
-      const extGetParameter = WebGL2RenderingContext.prototype.getParameter;
-      WebGL2RenderingContext.prototype.getParameter = function(param) {
-        if (param === 37445) return 'Intel Inc.';
-        if (param === 37446) return 'Intel Iris OpenGL Engine';
-        return extGetParameter.call(this, param);
-      };
+      spoof(WebGLRenderingContext.prototype);
+      if (typeof WebGL2RenderingContext !== 'undefined') {
+        spoof(WebGL2RenderingContext.prototype);
+      }
+    } catch (_) {}
+  `,
+  chrome: `
+    try {
+      if (!window.chrome) {
+        window.chrome = { runtime: {} };
+      }
+    } catch (_) {}
+  `,
+  permissions: `
+    try {
+      const originalQuery = navigator.permissions?.query?.bind(navigator.permissions);
+      if (originalQuery) {
+        navigator.permissions.query = (parameters) => {
+          if (parameters?.name === 'notifications') {
+            return Promise.resolve({ state: Notification.permission, onchange: null });
+          }
+          return originalQuery(parameters);
+        };
+      }
     } catch (_) {}
   `,
   canvas: `
@@ -65,18 +98,40 @@ export const STEALTH_SCRIPTS = {
   `,
 };
 
+export const STEALTH_SCRIPTS = {
+  webdriver: COMPLIANCE_LAYER.webdriver,
+  hardwareConcurrency: COMPLIANCE_LAYER.hardwareConcurrency,
+  plugins: COMPLIANCE_LAYER.plugins,
+  languages: COMPLIANCE_LAYER.languages,
+  platform: COMPLIANCE_LAYER.platform,
+  webgl: COMPLIANCE_LAYER.webgl,
+  canvas: COMPLIANCE_LAYER.canvas,
+};
+
 export const STEALTH_COMMAND_NAMES: string[] = Object.keys(STEALTH_SCRIPTS);
 
-export const ALL_STEALTH_SCRIPTS: string = Object.values(STEALTH_SCRIPTS).join('\n');
+export const ALL_STEALTH_SCRIPTS: string = [
+  COMPLIANCE_LAYER.webdriver,
+  COMPLIANCE_LAYER.hardwareConcurrency,
+  COMPLIANCE_LAYER.webgl,
+  COMPLIANCE_LAYER.plugins,
+  COMPLIANCE_LAYER.languages,
+  COMPLIANCE_LAYER.platform,
+  COMPLIANCE_LAYER.chrome,
+  COMPLIANCE_LAYER.permissions,
+  COMPLIANCE_LAYER.canvas,
+].join('\n');
+
+export function applyComplianceLayer(webContents: Electron.WebContents): void {
+  const inject = (): void => {
+    webContents.executeJavaScript(ALL_STEALTH_SCRIPTS).catch(() => {});
+  };
+
+  webContents.on('did-navigate', inject);
+  webContents.on('did-navigate-in-page', inject);
+  webContents.on('dom-ready', inject);
+}
 
 export function applyStealthToWebContents(webContents: Electron.WebContents): void {
-  webContents.on('did-navigate', () => {
-    webContents.executeJavaScript(ALL_STEALTH_SCRIPTS).catch(() => {});
-  });
-  webContents.on('did-navigate-in-page', () => {
-    webContents.executeJavaScript(ALL_STEALTH_SCRIPTS).catch(() => {});
-  });
-  webContents.on('dom-ready', () => {
-    webContents.executeJavaScript(ALL_STEALTH_SCRIPTS).catch(() => {});
-  });
+  applyComplianceLayer(webContents);
 }
