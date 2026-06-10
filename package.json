@@ -1,19 +1,26 @@
 {
   "name": "tan",
   "version": "1.0.0",
-  "description": "Universal Web Traffic Forensics & Real-Time Payload Reconstitution Suite",
+  "description": "Professional Compliance & Digital Forensic Archival Suite — Desktop (Electron) + Mobile (Android) hybrid",
   "main": "out/main/index.js",
   "author": "jayeshrajpurohit2010-creator",
+  "workspaces": [
+    "packages/shared",
+    "packages/mobile"
+  ],
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
+    "build:shared": "npm run build --workspace=packages/shared",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win nsis",
     "dist:mac": "npm run build && electron-builder --mac dmg zip",
     "preview": "electron-vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "mobile:android": "npm run android --workspace=packages/mobile",
+    "mobile:start":   "npm run start --workspace=packages/mobile"
   },
   "dependencies": {
     "ffmpeg-static": "^5.2.0",
@@ -31,6 +38,7 @@
     "electron": "^30.0.0",
     "electron-builder": "^26.8.1",
     "electron-vite": "^2.3.0",
+    "playwright-chromium": "^1.60.0",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.3",

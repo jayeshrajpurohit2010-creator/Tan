@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import type { SyncEvent, ReconstitutionEvent } from '../../../shared/ipc';
+import type { SyncEvent, ReconstitutionEvent, ReconstitutionProgressEvent } from '../../../shared/ipc';
 
 interface GalleryItem {
   id: string;
@@ -17,6 +17,7 @@ interface GalleryItem {
 interface LiveCaptureGalleryProps {
   events: SyncEvent[];
   reconstitutionEvents: ReconstitutionEvent[];
+  reconstitutionProgress: ReconstitutionProgressEvent[];
   onOpenFile: (path: string) => void;
 }
 
@@ -26,6 +27,8 @@ function mimeLabel(mimeType: string): string {
   if (mimeType.startsWith('text/') || mimeType.includes('javascript') || mimeType.includes('json')) return 'DOC';
   if (mimeType.includes('font') || mimeType.includes('woff')) return 'FNT';
   if (mimeType === 'application/wasm') return 'WASM';
+  if (mimeType.includes('mpegurl') || mimeType.includes('m3u8')) return 'HLS';
+  if (mimeType.includes('dash') || mimeType.includes('mpd')) return 'DASH';
   return 'BIN';
 }
 
@@ -41,13 +44,42 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[index]}`;
 }
 
-function LiveCaptureGallery({ events, reconstitutionEvents, onOpenFile }: LiveCaptureGalleryProps): JSX.Element {
+function ProgressBar({ percent }: { percent: number }): JSX.Element {
+  return (
+    <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-black/50 border border-cyan-300/20">
+      <div
+        className="progress-bar-fill h-full rounded-full transition-all duration-300"
+        style={{ width: `${Math.max(2, percent)}%` }}
+      />
+    </div>
+  );
+}
+
+function LiveCaptureGallery({
+  events,
+  reconstitutionEvents,
+  reconstitutionProgress,
+  onOpenFile,
+}: LiveCaptureGalleryProps): JSX.Element {
   const [filter, setFilter] = useState<string>('all');
 
   const latestArchive = useMemo(
     () => reconstitutionEvents.find((event) => !event.error && event.outputPath),
     [reconstitutionEvents],
   );
+
+  // Build a map of streamId -> latest percent for in-progress streams
+  const progressMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of reconstitutionProgress) {
+      map.set(p.streamId, p.percent);
+    }
+    // Remove completed streams
+    for (const e of reconstitutionEvents) {
+      map.delete(e.streamId);
+    }
+    return map;
+  }, [reconstitutionProgress, reconstitutionEvents]);
 
   const galleryItems: GalleryItem[] = [
     ...events.map((event) => ({
@@ -86,8 +118,11 @@ function LiveCaptureGallery({ events, reconstitutionEvents, onOpenFile }: LiveCa
     return `${value.slice(0, maxLen - 3)}...`;
   }, []);
 
+  const inProgressEntries = Array.from(progressMap.entries());
+
   return (
     <div className="flex h-full flex-col">
+      {/* Latest completed archive — hero card */}
       {latestArchive ? (
         <article
           className="mb-3 cursor-pointer border border-cyan-300/50 bg-cyan-950/35 p-4 transition hover:border-cyan-200/70 hover:bg-cyan-950/50"
@@ -95,29 +130,56 @@ function LiveCaptureGallery({ events, reconstitutionEvents, onOpenFile }: LiveCa
         >
           <div className="flex items-center justify-between gap-3">
             <div className="text-[11px] font-black uppercase tracking-[0.34em] text-cyan-100">
-              Archive Completed
+              Archive Complete
             </div>
             <span className="border border-cyan-300/40 px-2 py-0.5 text-[9px] font-mono uppercase tracking-wider text-cyan-200">
               Forensic MP4
             </span>
           </div>
-          <div className="mt-2 font-mono text-sm text-cyan-50">Stream: {latestArchive.streamId}</div>
-          <div className="mt-1 truncate font-mono text-[11px] text-cyan-100/75">{latestArchive.outputPath}</div>
+          <div className="mt-2 font-mono text-sm text-cyan-50 truncate">
+            {latestArchive.streamId}
+          </div>
+          <div className="mt-1 truncate font-mono text-[11px] text-cyan-100/75">
+            {latestArchive.outputPath}
+          </div>
           <div className="mt-2 flex flex-wrap gap-3 font-mono text-[10px] uppercase tracking-wider text-cyan-200/60">
-            <span>{latestArchive.segments} segments</span>
+            <span>{latestArchive.segments} segs</span>
             <span>{formatBytes(latestArchive.totalBytes)}</span>
             <span>{new Date(latestArchive.timestamp).toLocaleTimeString()}</span>
+            <span className="ml-auto text-cyan-300/80">▶ Open</span>
           </div>
         </article>
       ) : null}
 
+      {/* In-progress reconstitution cards */}
+      {inProgressEntries.length > 0 ? (
+        <div className="mb-3 space-y-2">
+          {inProgressEntries.map(([streamId, percent]) => (
+            <div
+              key={streamId}
+              className="border border-fuchsia-400/40 bg-fuchsia-950/25 p-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-mono text-[11px] uppercase tracking-[0.26em] text-fuchsia-200 blink">
+                  ⚙ Reconstituting
+                </span>
+                <span className="font-mono text-[11px] text-fuchsia-300">{percent}%</span>
+              </div>
+              <div className="mt-1 truncate font-mono text-[11px] text-fuchsia-100/60">{streamId}</div>
+              <ProgressBar percent={percent} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Filter tabs */}
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.28em] text-fuchsia-100/80">
           <span>Live Capture Gallery</span>
           <span className="text-cyan-300/50">({filtered.length})</span>
         </div>
         <div className="flex gap-1">
-          {['all', 'image', 'video', 'document', 'reconstituted'].map((value) => (
+          {(['all', 'image', 'video', 'document', 'reconstituted'] as const).map((value) => (
             <button
               key={value}
               onClick={() => setFilter(value)}
@@ -133,6 +195,7 @@ function LiveCaptureGallery({ events, reconstitutionEvents, onOpenFile }: LiveCa
         </div>
       </div>
 
+      {/* Gallery items list */}
       <div className="scrollbar-thin flex-1 space-y-2 overflow-y-auto pr-1">
         {filtered.length === 0 ? (
           <div className="flex h-full items-center justify-center font-mono text-[11px] uppercase tracking-[0.2em] text-cyan-100/30">
@@ -161,7 +224,7 @@ function LiveCaptureGallery({ events, reconstitutionEvents, onOpenFile }: LiveCa
                   <div className="min-w-0">
                     <div className="truncate font-mono text-xs text-cyan-100/90">
                       {item.isReconstituted ? (
-                        <span className="text-cyan-300">▶ Reconstituted: {item.streamId}</span>
+                        <span className="text-cyan-300">▶ {item.streamId}</span>
                       ) : (
                         truncateUrl(item.url)
                       )}
@@ -173,7 +236,7 @@ function LiveCaptureGallery({ events, reconstitutionEvents, onOpenFile }: LiveCa
                       {item.isReconstituted && item.segments ? (
                         <>
                           <span>•</span>
-                          <span className="text-cyan-300/60">{item.segments} segments</span>
+                          <span className="text-cyan-300/60">{item.segments} segs</span>
                         </>
                       ) : null}
                     </div>

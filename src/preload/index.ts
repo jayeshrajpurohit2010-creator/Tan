@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ActivationRequest, EngineStatus, SyncEvent, ReconstitutionEvent, TanApi, ViewportBounds } from '../shared/ipc';
+import type {
+  ActivationRequest,
+  EngineStatus,
+  SyncEvent,
+  ReconstitutionEvent,
+  ReconstitutionProgressEvent,
+  TanApi,
+  ViewportBounds,
+} from '../shared/ipc';
 
 const api: TanApi = {
   activate(request: ActivationRequest) {
@@ -34,6 +42,11 @@ const api: TanApi = {
     const listener = (_event: Electron.IpcRendererEvent, event: ReconstitutionEvent) => callback(event);
     ipcRenderer.on('tan:reconstitution-event', listener);
     return () => ipcRenderer.off('tan:reconstitution-event', listener);
+  },
+  onReconstitutionProgress(callback: (event: ReconstitutionProgressEvent) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, event: ReconstitutionProgressEvent) => callback(event);
+    ipcRenderer.on('tan:reconstitution-progress', listener);
+    return () => ipcRenderer.off('tan:reconstitution-progress', listener);
   },
 };
 

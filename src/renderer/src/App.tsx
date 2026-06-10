@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import type { EngineStatus, SyncEvent, ReconstitutionEvent, StealthConfig } from '../../shared/ipc';
+import type {
+  EngineStatus,
+  SyncEvent,
+  ReconstitutionEvent,
+  ReconstitutionProgressEvent,
+  StealthConfig,
+} from '../../shared/ipc';
 import { DEFAULT_STEALTH_CONFIG, PRIMARY_AUDIT_ENDPOINT } from '../../shared/ipc';
 import Logo from './components/Logo';
 import LiveCaptureGallery from './components/LiveCaptureGallery';
@@ -21,6 +27,7 @@ function App(): JSX.Element {
   const [status, setStatus] = useState<EngineStatus>(initialStatus);
   const [events, setEvents] = useState<SyncEvent[]>([]);
   const [reconstitutionEvents, setReconstitutionEvents] = useState<ReconstitutionEvent[]>([]);
+  const [reconstitutionProgress, setReconstitutionProgress] = useState<ReconstitutionProgressEvent[]>([]);
   const [error, setError] = useState<string | undefined>();
   const [stealthConfig, setStealthConfig] = useState<StealthConfig>(DEFAULT_STEALTH_CONFIG);
   const [showStealthPanel, setShowStealthPanel] = useState(false);
@@ -73,12 +80,28 @@ function App(): JSX.Element {
     });
     const removeRecon = window.tan.onReconstitutionEvent((event) => {
       setReconstitutionEvents((current) => [event, ...current].slice(0, 30));
+      // Remove progress entry when done
+      setReconstitutionProgress((current) =>
+        current.filter((p) => p.streamId !== event.streamId),
+      );
+    });
+    const removeProgress = window.tan.onReconstitutionProgress((event) => {
+      setReconstitutionProgress((current) => {
+        const idx = current.findIndex((p) => p.streamId === event.streamId);
+        if (idx === -1) {
+          return [...current, event].slice(-20);
+        }
+        const next = [...current];
+        next[idx] = event;
+        return next;
+      });
     });
 
     return () => {
       removeStatus();
       removeSyncEvent();
       removeRecon();
+      removeProgress();
     };
   }, []);
 
@@ -188,7 +211,15 @@ function App(): JSX.Element {
                     : '○ Viewport Standby'}
               </span>
             </div>
-            <div className="mobile-shell relative mx-auto aspect-[9/19.5] w-full max-w-[430px] overflow-hidden rounded-[28px] border border-fuchsia-400/45 bg-black shadow-neonPurple">
+            <div
+              className={`mobile-shell relative mx-auto aspect-[9/19.5] w-full max-w-[430px] overflow-hidden rounded-[28px] border bg-black ${
+                syncEngineLive
+                  ? 'capture-active border-fuchsia-400/55 shadow-neonPurple'
+                  : status.active
+                    ? 'border-amber-400/35'
+                    : 'border-fuchsia-400/25'
+              }`}
+            >
               <div className="absolute inset-x-16 top-2 z-20 h-5 rounded-b-2xl bg-black/90 shadow-neonCyan" />
               <div
                 ref={viewportRef}
@@ -199,7 +230,7 @@ function App(): JSX.Element {
                     ? 'Forensic Capture Viewport Online'
                     : status.active
                       ? 'Establishing CDP Attachment'
-                      : 'Loading primary audit endpoint'}
+                      : 'Loading Primary Audit Endpoint'}
                 </div>
               </div>
             </div>
@@ -209,12 +240,18 @@ function App(): JSX.Element {
             <LiveCaptureGallery
               events={events}
               reconstitutionEvents={reconstitutionEvents}
+              reconstitutionProgress={reconstitutionProgress}
               onOpenFile={handleOpenFile}
             />
           </div>
         </section>
 
-        <TelemetryPanel status={status} events={events} reconstitutionEvents={reconstitutionEvents} latestBytes={latestBytes} />
+        <TelemetryPanel
+          status={status}
+          events={events}
+          reconstitutionEvents={reconstitutionEvents}
+          latestBytes={latestBytes}
+        />
       </section>
     </main>
   );
@@ -239,35 +276,40 @@ type ControlPanelProps = {
 };
 
 function ControlPanel(props: ControlPanelProps): JSX.Element {
+  const isActive = props.status.active;
+
   return (
     <aside className="flex min-w-0 flex-col justify-between border-r border-fuchsia-400/20 pr-5">
       <div>
+        {/* Logo */}
         <div className="mb-8">
           <Logo />
-          <p className="mt-2 text-xs uppercase tracking-[0.32em] text-cyan-200/70">
-            Verification Vault Interface
+          <p className="mt-3 text-[10px] uppercase tracking-[0.34em] text-cyan-200/60">
+            Compliance &amp; Digital Forensics
           </p>
         </div>
 
+        {/* Target endpoint */}
         <label className="block text-[11px] uppercase tracking-[0.28em] text-fuchsia-200/80" htmlFor="endpoint">
           Target Endpoint
         </label>
         <input
           id="endpoint"
           value={props.url}
-          disabled={props.status.active || props.isBusy}
+          disabled={isActive || props.isBusy}
           onChange={(event) => props.setUrl(event.target.value)}
           className="mt-3 w-full border border-cyan-300/35 bg-black/70 px-4 py-3 font-mono text-sm text-cyan-50 outline-none shadow-neonCyan transition focus:border-cyan-200 disabled:opacity-55"
           placeholder="https://endpoint.example"
         />
 
+        {/* Encryption panel */}
         <div className="mt-5 border border-fuchsia-400/25 bg-fuchsia-950/10 p-4">
           <label className="flex cursor-pointer items-center justify-between gap-4 text-sm text-fuchsia-100">
-            <span>AES-256-GCM encryption</span>
+            <span>AES-256-GCM Encryption</span>
             <input
               type="checkbox"
               checked={props.encryptionEnabled}
-              disabled={props.status.active || props.isBusy}
+              disabled={isActive || props.isBusy}
               onChange={(event) => props.setEncryptionEnabled(event.target.checked)}
               className="h-5 w-5 accent-tanPurple"
             />
@@ -275,7 +317,7 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
           {props.encryptionEnabled ? (
             <input
               value={props.passphrase}
-              disabled={props.status.active || props.isBusy}
+              disabled={isActive || props.isBusy}
               onChange={(event) => props.setPassphrase(event.target.value)}
               type="password"
               className="mt-4 w-full border border-fuchsia-300/35 bg-black/70 px-4 py-3 font-mono text-sm text-fuchsia-50 outline-none transition focus:border-fuchsia-200 disabled:opacity-55"
@@ -284,6 +326,7 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
           ) : null}
         </div>
 
+        {/* Compliance/stealth panel */}
         <div className="mt-3 border border-cyan-300/20 bg-cyan-950/10">
           <button
             onClick={() => props.setShowStealthPanel(!props.showStealthPanel)}
@@ -299,53 +342,67 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
               <StealthToggle
                 label="Spoof navigator.webdriver"
                 checked={props.stealthConfig.spoofWebdriver}
-                disabled={props.status.active || props.isBusy}
+                disabled={isActive || props.isBusy}
                 onChange={(v) => props.setStealthConfig({ ...props.stealthConfig, spoofWebdriver: v })}
               />
               <StealthToggle
                 label="Spoof hardwareConcurrency"
                 checked={props.stealthConfig.spoofHardwareConcurrency}
-                disabled={props.status.active || props.isBusy}
+                disabled={isActive || props.isBusy}
                 onChange={(v) => props.setStealthConfig({ ...props.stealthConfig, spoofHardwareConcurrency: v })}
               />
               <StealthToggle
                 label="Spoof WebGL vendor/renderer"
                 checked={props.stealthConfig.spoofWebgl}
-                disabled={props.status.active || props.isBusy}
+                disabled={isActive || props.isBusy}
                 onChange={(v) => props.setStealthConfig({ ...props.stealthConfig, spoofWebgl: v })}
               />
               <StealthToggle
                 label="Spoof plugins array"
                 checked={props.stealthConfig.spoofPlugins}
-                disabled={props.status.active || props.isBusy}
+                disabled={isActive || props.isBusy}
                 onChange={(v) => props.setStealthConfig({ ...props.stealthConfig, spoofPlugins: v })}
               />
               <StealthToggle
                 label="Spoof platform string"
                 checked={props.stealthConfig.spoofPlatform}
-                disabled={props.status.active || props.isBusy}
+                disabled={isActive || props.isBusy}
                 onChange={(v) => props.setStealthConfig({ ...props.stealthConfig, spoofPlatform: v })}
               />
               <StealthToggle
                 label="Enable stealth layer"
                 checked={props.stealthConfig.enabled}
-                disabled={props.status.active || props.isBusy}
+                disabled={isActive || props.isBusy}
                 onChange={(v) => props.setStealthConfig({ ...props.stealthConfig, enabled: v })}
               />
             </div>
           ) : null}
         </div>
 
+        {/* Error message */}
         {props.error ? (
-          <div className="mt-4 border border-red-400/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">{props.error}</div>
+          <div className="mt-4 border border-red-400/40 bg-red-950/30 px-4 py-3 text-sm text-red-100">
+            {props.error}
+          </div>
         ) : null}
 
+        {/* ── ACTIVATE / ABORT ARCHIVE MODE ── */}
         <button
           onClick={() => void props.onToggle()}
-          disabled={props.isBusy || (props.encryptionEnabled && !props.passphrase && !props.status.active)}
-          className="mt-6 w-full border border-fuchsia-300 bg-fuchsia-500/20 px-5 py-5 text-left font-mono text-base font-black uppercase tracking-[0.16em] text-fuchsia-50 shadow-neonPurple transition hover:bg-fuchsia-400/30 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={props.isBusy || (props.encryptionEnabled && !props.passphrase && !isActive)}
+          className={`mt-6 w-full border px-5 py-5 text-left font-mono text-base font-black uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            isActive
+              ? 'archive-btn-active border-red-400/60 bg-red-500/15 text-red-100 hover:bg-red-400/25'
+              : 'archive-btn-idle border-fuchsia-300 bg-fuchsia-500/20 text-fuchsia-50 shadow-neonPurple hover:bg-fuchsia-400/30'
+          }`}
         >
-          {props.status.active ? 'DEACTIVATE SYNC ENGINE' : 'ACTIVATE SYNC ENGINE'}
+          {props.isBusy
+            ? props.status.mode === 'arming'
+              ? '⟳ Arming...'
+              : '⟳ Flushing...'
+            : isActive
+              ? '◼ Abort Archive Session'
+              : '▶ Activate Archive Mode'}
         </button>
 
         <button
@@ -356,12 +413,19 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
         </button>
       </div>
 
+      {/* Terminal readout */}
       <div className="terminal-readout mt-6 border border-cyan-300/20 bg-black/50 p-4 text-xs text-cyan-100/80">
         <p>mode: <span className="text-fuchsia-200">{props.status.mode}</span></p>
         <p>queue: <span className="text-cyan-200">{props.status.queueDepth}</span></p>
-        <p>cdp: <span className={props.status.cdpAttached ? 'text-green-300' : 'text-amber-200'}>{props.status.cdpAttached ? 'attached' : 'detached'}</span></p>
-        <p>compliance: <span className={props.stealthConfig.enabled ? 'text-green-300' : 'text-red-300'}>{props.stealthConfig.enabled ? 'active' : 'disabled'}</span></p>
-        <p>vault: <span className="truncate block text-cyan-200/60">{props.status.vaultRoot ?? 'pending'}</span></p>
+        <p>cdp: <span className={props.status.cdpAttached ? 'text-green-300' : 'text-amber-200'}>
+          {props.status.cdpAttached ? 'attached' : 'detached'}
+        </span></p>
+        <p>compliance: <span className={props.stealthConfig.enabled ? 'text-green-300' : 'text-red-300'}>
+          {props.stealthConfig.enabled ? 'active' : 'disabled'}
+        </span></p>
+        <p className="truncate">vault: <span className="text-cyan-200/60">
+          {props.status.vaultRoot ?? 'pending'}
+        </span></p>
       </div>
     </aside>
   );
@@ -409,11 +473,11 @@ function TelemetryPanel({
   return (
     <aside className="flex min-w-0 flex-col border-l border-cyan-300/20 pl-5">
       <div className="grid grid-cols-2 gap-3">
-        <Metric label="Payloads" value={events.length.toString()} />
-        <Metric label="Bytes" value={formatBytes(latestBytes)} />
-        <Metric label="Queue" value={status.queueDepth.toString()} />
-        <Metric label="State" value={status.mode} />
-        <Metric label="Reconstituted" value={reconstitutedCount.toString()} />
+        <Metric label="Payloads"    value={events.length.toString()} />
+        <Metric label="Bytes"       value={formatBytes(latestBytes)} />
+        <Metric label="Queue"       value={status.queueDepth.toString()} />
+        <Metric label="State"       value={status.mode} />
+        <Metric label="Recon OK"    value={reconstitutedCount.toString()} />
         <Metric label="Recon Bytes" value={formatBytes(reconstitutedBytes)} />
       </div>
 
@@ -421,25 +485,30 @@ function TelemetryPanel({
         <div className="border-b border-fuchsia-400/25 px-4 py-3 text-[11px] uppercase tracking-[0.28em] text-fuchsia-100/80">
           Payload Stream
         </div>
-        <div className="h-[calc(100vh-280px)] overflow-y-auto p-4 font-mono text-xs">
+        <div className="h-[calc(100vh-280px)] overflow-y-auto p-4 font-mono text-xs scrollbar-thin">
           {events.length === 0 && reconstitutionEvents.length === 0 ? (
             <div className="text-cyan-100/45">Awaiting intercepted response payloads...</div>
           ) : (
             <>
               {reconstitutionEvents.length > 0 ? (
                 <div className="mb-4">
-                  <div className="mb-2 text-[10px] uppercase tracking-[0.3em] text-cyan-300/60">Reconstituted Streams</div>
+                  <div className="mb-2 text-[10px] uppercase tracking-[0.3em] text-cyan-300/60">
+                    Reconstituted Streams
+                  </div>
                   {reconstitutionEvents.slice(0, 10).map((event) => (
-                    <article key={`recon-${event.streamId}-${event.timestamp}`} className="mb-3 border-l-2 border-cyan-400/50 pl-3 pb-3">
+                    <article
+                      key={`recon-${event.streamId}-${event.timestamp}`}
+                      className="mb-3 border-l-2 border-cyan-400/50 pl-3 pb-3"
+                    >
                       <div className="flex items-center justify-between gap-3 text-cyan-100">
-                        <span className="text-cyan-300">▶ {event.streamId}</span>
-                        <span className="text-cyan-200">{formatBytes(event.totalBytes)}</span>
+                        <span className="truncate text-cyan-300">▶ {event.streamId}</span>
+                        <span className="flex-shrink-0 text-cyan-200">{formatBytes(event.totalBytes)}</span>
                       </div>
-                      <div className="mt-1 text-fuchsia-100/60 truncate">
+                      <div className="mt-1 text-fuchsia-100/60">
                         {event.segments} segments → .mp4
                       </div>
                       {event.error ? (
-                        <div className="mt-1 text-red-200/70">{event.error}</div>
+                        <div className="mt-1 text-red-200/70 truncate">{event.error}</div>
                       ) : null}
                     </article>
                   ))}
@@ -447,17 +516,22 @@ function TelemetryPanel({
               ) : null}
 
               {events.map((syncEvent) => (
-                <article key={`${syncEvent.id}-${syncEvent.timestamp}`} className="mb-4 border-b border-fuchsia-400/10 pb-4">
+                <article
+                  key={`${syncEvent.id}-${syncEvent.timestamp}`}
+                  className="mb-4 border-b border-fuchsia-400/10 pb-4"
+                >
                   <div className="mb-1 flex items-center justify-between gap-3 text-cyan-100">
                     <span className="truncate">{syncEvent.mimeType || 'application/octet-stream'}</span>
-                    <span>{formatBytes(syncEvent.bytes)}</span>
+                    <span className="flex-shrink-0">{formatBytes(syncEvent.bytes)}</span>
                   </div>
                   <div className="truncate text-fuchsia-100/65">{syncEvent.url}</div>
                   <div className="mt-1 flex justify-between gap-3 text-cyan-100/45">
                     <span>{syncEvent.status ?? 'ERR'}</span>
                     <span>{syncEvent.encrypted ? 'encrypted' : 'raw'}</span>
                   </div>
-                  {syncEvent.error ? <div className="mt-2 text-red-200">{syncEvent.error}</div> : null}
+                  {syncEvent.error ? (
+                    <div className="mt-2 text-red-200 truncate">{syncEvent.error}</div>
+                  ) : null}
                 </article>
               ))}
             </>
@@ -480,16 +554,16 @@ function StatusBar({
   return (
     <div className="flex flex-wrap items-center justify-between gap-4">
       <div className="font-mono text-[11px] uppercase tracking-[0.28em] text-fuchsia-100/80">
-        Tan Forensic Archival Suite
+        Tan — Professional Forensic Archival Suite
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <StatusPill
-          label="Sync Engine"
+          label="Archive Engine"
           active={syncEngineLive}
           pending={status.active && !status.cdpAttached}
         />
         <StatusPill label="Reconstitution" active={status.reconstitutionEnabled && status.active} />
-        <StatusPill label="Compliance" active={status.stealthEnabled} />
+        <StatusPill label="Compliance"     active={status.stealthEnabled} />
         <span className="max-w-[320px] truncate font-mono text-[10px] text-cyan-100/45">{url}</span>
       </div>
     </div>

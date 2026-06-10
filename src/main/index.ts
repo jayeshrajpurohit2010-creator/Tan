@@ -1,6 +1,11 @@
 import { app, BaseWindow, WebContentsView, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
-import type { ActivationRequest, EngineStatus, ViewportBounds, StealthConfig } from '../shared/ipc';
+import type {
+  ActivationRequest,
+  EngineStatus,
+  ViewportBounds,
+  StealthConfig,
+} from '../shared/ipc';
 import {
   DEFAULT_STEALTH_CONFIG,
   isHighFidelityEndpoint,
@@ -142,7 +147,7 @@ function createWindow(): void {
     height: 1000,
     minWidth: 1280,
     minHeight: 800,
-    title: 'Tan',
+    title: 'Tan — Forensic Archival Suite',
     backgroundColor: '#020106',
   });
 
@@ -182,9 +187,14 @@ function createWindow(): void {
     },
   });
 
-  streamEngine = new StreamReconstitutionEngine((event) => {
-    dashboardView?.webContents.send('tan:reconstitution-event', event);
-  });
+  streamEngine = new StreamReconstitutionEngine(
+    (event) => {
+      dashboardView?.webContents.send('tan:reconstitution-event', event);
+    },
+    (progress) => {
+      dashboardView?.webContents.send('tan:reconstitution-progress', progress);
+    },
+  );
 
   mountTargetViewportListeners();
 

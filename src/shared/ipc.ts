@@ -65,6 +65,12 @@ export type ReconstitutionEvent = {
   timestamp: string;
 };
 
+export type ReconstitutionProgressEvent = {
+  streamId: string;
+  percent: number;
+  timestamp: string;
+};
+
 export type StealthConfig = {
   enabled: boolean;
   spoofWebdriver: boolean;
@@ -106,5 +112,6 @@ export type TanApi = {
   onStatus(callback: (status: EngineStatus) => void): () => void;
   onSyncEvent(callback: (event: SyncEvent) => void): () => void;
   onReconstitutionEvent(callback: (event: ReconstitutionEvent) => void): () => void;
+  onReconstitutionProgress(callback: (event: ReconstitutionProgressEvent) => void): () => void;
   openFile(path: string): Promise<void>;
 };
