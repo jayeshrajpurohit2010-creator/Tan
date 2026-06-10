@@ -1,0 +1,14 @@
+{
+  "name": "@tan/shared",
+  "version": "1.0.0",
+  "description": "Platform-agnostic shared types and utilities for Tan",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.3"
+  }
+}
