@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type {
   ActivationRequest,
   EngineStatus,
+  NavigationState,
   ViewportBounds,
   StealthConfig,
 } from '../shared/ipc';
@@ -113,6 +114,20 @@ async function tryAutoArchive(url: string): Promise<void> {
   }
 }
 
+function emitNavigationState(): void {
+  if (!targetView || !dashboardView) {
+    return;
+  }
+  const wc = targetView.webContents;
+  const state: NavigationState = {
+    url: wc.getURL(),
+    canGoBack: wc.canGoBack(),
+    canGoForward: wc.canGoForward(),
+    isLoading: wc.isLoading(),
+  };
+  dashboardView.webContents.send('tan:navigation-state', state);
+}
+
 function mountTargetViewportListeners(): void {
   if (!targetView) {
     return;
@@ -121,12 +136,16 @@ function mountTargetViewportListeners(): void {
   const webContents = targetView.webContents;
   const handleNavigation = (_event: Electron.Event, url: string): void => {
     void tryAutoArchive(url);
+    emitNavigationState();
   };
 
   webContents.on('did-navigate', handleNavigation);
   webContents.on('did-navigate-in-page', handleNavigation);
+  webContents.on('did-start-loading', () => emitNavigationState());
+  webContents.on('did-stop-loading', () => emitNavigationState());
   webContents.on('did-finish-load', () => {
     void tryAutoArchive(webContents.getURL());
+    emitNavigationState();
   });
 }
 
@@ -321,6 +340,30 @@ ipcMain.handle('tan:toggle-reconstitution', async (_event, enabled: boolean) => 
 ipcMain.on('tan:viewport-bounds', (_event, bounds: ViewportBounds) => {
   latestViewportBounds = bounds;
   applyViewportBounds(bounds);
+});
+
+ipcMain.handle('tan:navigate', async (_event, url: string) => {
+  if (!targetView) {
+    return;
+  }
+  const normalized = /^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`;
+  await targetView.webContents.loadURL(normalized);
+});
+
+ipcMain.on('tan:go-back', () => {
+  if (targetView?.webContents.canGoBack()) {
+    targetView.webContents.goBack();
+  }
+});
+
+ipcMain.on('tan:go-forward', () => {
+  if (targetView?.webContents.canGoForward()) {
+    targetView.webContents.goForward();
+  }
+});
+
+ipcMain.on('tan:reload', () => {
+  targetView?.webContents.reload();
 });
 
 app.whenReady().then(() => {

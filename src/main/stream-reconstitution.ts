@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
-import { mkdir, stat, unlink } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import { join, basename, dirname, extname } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { createHash } from 'node:crypto';
@@ -9,8 +9,8 @@ import { createHash } from 'node:crypto';
 const IDLE_WATCHDOG_MS = 5_000;
 /** How often the watchdog checks for completed streams. */
 const WATCHDOG_POLL_MS = 1_000;
-/** Segment file extensions that indicate HLS (.ts) or MPEG-DASH (.m4s) streams. */
-const SEGMENT_EXTENSIONS = new Set(['.ts', '.m4s']);
+/** Segment file extensions that indicate HLS (.ts) or MPEG-DASH (.m4s / .fmp4) streams. */
+const SEGMENT_EXTENSIONS = new Set(['.ts', '.m4s', '.fmp4']);
 
 export type ReconstitutionEvent = {
   streamId: string;
@@ -130,17 +130,24 @@ export class StreamReconstitutionEngine {
     }
   }
 
+  // Cache scope hashes to avoid re-hashing the same vault directory on every segment.
+  private readonly scopeHashCache = new Map<string, string>();
+
   private resolveStreamId(filePath: string): string | null {
     const name = basename(filePath);
-    // Match HLS patterns: stream_001.ts, seg0.ts, stream.m4s, chunk-00.m4s
-    const match = name.match(/^(.+?)(?:[_-]?\d+)?(?:\.\w+)?\.(?:ts|m4s)$/i);
+    // Match HLS/DASH patterns: stream_001.ts, seg0.ts, stream.m4s, chunk-00.m4s, init.fmp4
+    const match = name.match(/^(.+?)(?:[_-]?\d+)?(?:\.\w+)?\.(?:ts|m4s|fmp4)$/i);
     if (!match) {
       return null;
     }
     const base = match[1].replace(/[_-]+$/, '') || 'stream';
     // Scope to the parent directory to avoid collisions across different streams
     const vaultPath = dirname(filePath);
-    const scopeHash = createHash('sha256').update(vaultPath).digest('hex').slice(0, 6);
+    let scopeHash = this.scopeHashCache.get(vaultPath);
+    if (!scopeHash) {
+      scopeHash = createHash('sha256').update(vaultPath).digest('hex').slice(0, 6);
+      this.scopeHashCache.set(vaultPath, scopeHash);
+    }
     return `${base}_${scopeHash}`;
   }
 
@@ -200,14 +207,7 @@ export class StreamReconstitutionEngine {
 
       await this.runFfmpegConcat(group.streamId, group.segments, outputPath);
 
-      let inputBytes = 0;
-      for (const seg of group.segments) {
-        try {
-          const segStat = await stat(seg);
-          inputBytes += segStat.size;
-        } catch {}
-      }
-
+      // Use the already-accumulated segment byte count rather than re-statting every file.
       let outputBytes = 0;
       try {
         const outputStat = await stat(outputPath);
@@ -218,7 +218,7 @@ export class StreamReconstitutionEngine {
         streamId: group.streamId,
         segments: group.segments.length,
         outputPath,
-        totalBytes: outputBytes || inputBytes,
+        totalBytes: outputBytes || group.totalBytes,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {

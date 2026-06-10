@@ -99,6 +99,13 @@ export type GalleryEntry = {
   thumbnailPath?: string;
 };
 
+export type NavigationState = {
+  url: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  isLoading: boolean;
+};
+
 export type AppConfig = {
   primaryAuditEndpoint: string;
 };
@@ -109,9 +116,14 @@ export type TanApi = {
   setViewportBounds(bounds: ViewportBounds): void;
   openVault(): Promise<void>;
   getConfig(): Promise<AppConfig>;
+  navigate(url: string): Promise<void>;
+  goBack(): void;
+  goForward(): void;
+  reload(): void;
   onStatus(callback: (status: EngineStatus) => void): () => void;
   onSyncEvent(callback: (event: SyncEvent) => void): () => void;
   onReconstitutionEvent(callback: (event: ReconstitutionEvent) => void): () => void;
   onReconstitutionProgress(callback: (event: ReconstitutionProgressEvent) => void): () => void;
+  onNavigationState(callback: (state: NavigationState) => void): () => void;
   openFile(path: string): Promise<void>;
 };

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   ActivationRequest,
   EngineStatus,
+  NavigationState,
   SyncEvent,
   ReconstitutionEvent,
   ReconstitutionProgressEvent,
@@ -25,6 +26,18 @@ const api: TanApi = {
   getConfig() {
     return ipcRenderer.invoke('tan:get-config');
   },
+  navigate(url: string) {
+    return ipcRenderer.invoke('tan:navigate', url);
+  },
+  goBack() {
+    ipcRenderer.send('tan:go-back');
+  },
+  goForward() {
+    ipcRenderer.send('tan:go-forward');
+  },
+  reload() {
+    ipcRenderer.send('tan:reload');
+  },
   openFile(path: string) {
     return ipcRenderer.invoke('tan:open-file', path);
   },
@@ -47,6 +60,11 @@ const api: TanApi = {
     const listener = (_event: Electron.IpcRendererEvent, event: ReconstitutionProgressEvent) => callback(event);
     ipcRenderer.on('tan:reconstitution-progress', listener);
     return () => ipcRenderer.off('tan:reconstitution-progress', listener);
+  },
+  onNavigationState(callback: (state: NavigationState) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, state: NavigationState) => callback(state);
+    ipcRenderer.on('tan:navigation-state', listener);
+    return () => ipcRenderer.off('tan:navigation-state', listener);
   },
 };
 
