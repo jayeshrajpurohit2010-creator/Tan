@@ -1,12 +1,16 @@
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, stat, unlink } from 'node:fs/promises';
 import { join, basename, dirname, extname } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { createHash } from 'node:crypto';
 
+/** After this idle period with no new segments, a stream is considered complete. */
 const IDLE_WATCHDOG_MS = 5_000;
+/** How often the watchdog checks for completed streams. */
 const WATCHDOG_POLL_MS = 1_000;
+/** Segment file extensions that indicate HLS (.ts) or MPEG-DASH (.m4s) streams. */
+const SEGMENT_EXTENSIONS = new Set(['.ts', '.m4s']);
 
 export type ReconstitutionEvent = {
   streamId: string;
@@ -15,6 +19,12 @@ export type ReconstitutionEvent = {
   totalBytes: number;
   duration?: number;
   error?: string;
+  timestamp: string;
+};
+
+export type ReconstitutionProgressEvent = {
+  streamId: string;
+  percent: number;
   timestamp: string;
 };
 
@@ -33,12 +43,17 @@ export class StreamReconstitutionEngine {
   private vaultRoot: string;
   private timer: NodeJS.Timeout | undefined;
   private onEvent: (event: ReconstitutionEvent) => void;
+  private onProgress: ((event: ReconstitutionProgressEvent) => void) | undefined;
   private activeEndpoint: string | undefined;
   private processing = false;
 
-  constructor(onEvent: (event: ReconstitutionEvent) => void) {
+  constructor(
+    onEvent: (event: ReconstitutionEvent) => void,
+    onProgress?: (event: ReconstitutionProgressEvent) => void,
+  ) {
     this.vaultRoot = join(app.getPath('downloads'), 'Tan');
     this.onEvent = onEvent;
+    this.onProgress = onProgress;
   }
 
   setEndpoint(endpointUrl: string): void {
@@ -50,7 +65,8 @@ export class StreamReconstitutionEngine {
   }
 
   registerSegment(filePath: string): void {
-    if (extname(filePath).toLowerCase() !== '.ts') {
+    const ext = extname(filePath).toLowerCase();
+    if (!SEGMENT_EXTENSIONS.has(ext)) {
       return;
     }
 
@@ -67,7 +83,7 @@ export class StreamReconstitutionEngine {
       existing.lastSeen = Date.now();
       void this.refreshSegmentBytes(existing, filePath);
     } else {
-      this.streams.set(streamId, {
+      const group: StreamGroup = {
         streamId,
         vaultPath: dirname(filePath),
         segments: [filePath],
@@ -75,8 +91,9 @@ export class StreamReconstitutionEngine {
         lastSeen: Date.now(),
         totalBytes: 0,
         finalizing: false,
-      });
-      void this.refreshSegmentBytes(this.streams.get(streamId)!, filePath);
+      };
+      this.streams.set(streamId, group);
+      void this.refreshSegmentBytes(group, filePath);
     }
   }
 
@@ -109,17 +126,22 @@ export class StreamReconstitutionEngine {
       const segStat = await stat(filePath);
       group.totalBytes += segStat.size;
     } catch {
-      // Forensic logging tolerates transient stat failures during segment registration.
+      // Transient stat failures during segment registration are expected.
     }
   }
 
   private resolveStreamId(filePath: string): string | null {
     const name = basename(filePath);
-    const match = name.match(/^(.+?)(?:_\d+)?\.ts$/);
+    // Match HLS patterns: stream_001.ts, seg0.ts, stream.m4s, chunk-00.m4s
+    const match = name.match(/^(.+?)(?:[_-]?\d+)?(?:\.\w+)?\.(?:ts|m4s)$/i);
     if (!match) {
       return null;
     }
-    return match[1];
+    const base = match[1].replace(/[_-]+$/, '') || 'stream';
+    // Scope to the parent directory to avoid collisions across different streams
+    const vaultPath = dirname(filePath);
+    const scopeHash = createHash('sha256').update(vaultPath).digest('hex').slice(0, 6);
+    return `${base}_${scopeHash}`;
   }
 
   private async processStreams(): Promise<void> {
@@ -150,6 +172,7 @@ export class StreamReconstitutionEngine {
         }
         group.finalizing = true;
         this.streams.delete(streamId);
+        // Process sequentially to avoid saturating the CPU with concurrent workers.
         await this.reconstitute(group);
       }
     } finally {
@@ -175,13 +198,13 @@ export class StreamReconstitutionEngine {
 
       const outputPath = join(outputDir, `${group.streamId}_${streamHash}.mp4`);
 
-      await this.runFfmpegConcat(group.segments, outputPath);
+      await this.runFfmpegConcat(group.streamId, group.segments, outputPath);
 
-      let totalBytes = 0;
+      let inputBytes = 0;
       for (const seg of group.segments) {
         try {
           const segStat = await stat(seg);
-          totalBytes += segStat.size;
+          inputBytes += segStat.size;
         } catch {}
       }
 
@@ -191,15 +214,13 @@ export class StreamReconstitutionEngine {
         outputBytes = outputStat.size;
       } catch {}
 
-      const event: ReconstitutionEvent = {
+      this.onEvent({
         streamId: group.streamId,
         segments: group.segments.length,
         outputPath,
-        totalBytes: outputBytes || totalBytes,
+        totalBytes: outputBytes || inputBytes,
         timestamp: new Date().toISOString(),
-      };
-
-      this.onEvent(event);
+      });
     } catch (error) {
       this.onEvent({
         streamId: group.streamId,
@@ -214,13 +235,15 @@ export class StreamReconstitutionEngine {
 
   private extractSegmentNumber(filePath: string): number {
     const name = basename(filePath);
-    const match = name.match(/_(\d+)\.ts$/);
+    // Match trailing numbers before extension: seg_003.ts, chunk-007.m4s
+    const match = name.match(/[_-]?(\d+)\.[a-z0-9]+$/i);
     if (match) {
       return parseInt(match[1], 10);
     }
-    const nMatch = name.match(/(\d+)\.ts$/);
-    if (nMatch) {
-      return parseInt(nMatch[1], 10);
+    // Fallback: any sequence of digits in the filename
+    const digits = name.match(/(\d+)/g);
+    if (digits && digits.length > 0) {
+      return parseInt(digits[digits.length - 1], 10);
     }
     return 0;
   }
@@ -238,7 +261,34 @@ export class StreamReconstitutionEngine {
     return join(__dirname, 'ffmpegWorker.js');
   }
 
-  private async runFfmpegConcat(segments: string[], outputPath: string): Promise<void> {
+  private resolveFfmpegBinaryPath(): string | undefined {
+    if (app.isPackaged) {
+      const bin = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+      const candidate = join(
+        process.resourcesPath,
+        'app.asar.unpacked',
+        'node_modules',
+        'ffmpeg-static',
+        bin,
+      );
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    } else {
+      const bin = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+      const candidate = join(app.getAppPath(), 'node_modules', 'ffmpeg-static', bin);
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return undefined;
+  }
+
+  private async runFfmpegConcat(
+    streamId: string,
+    segments: string[],
+    outputPath: string,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
       const finish = (error?: Error): void => {
@@ -254,20 +304,37 @@ export class StreamReconstitutionEngine {
       };
 
       try {
-        const worker = new Worker(this.resolveWorkerPath(), {
-          workerData: { segments, outputPath },
-        });
+        const workerData: {
+          segments: string[];
+          outputPath: string;
+          ffmpegPath?: string;
+        } = {
+          segments,
+          outputPath,
+          ffmpegPath: this.resolveFfmpegBinaryPath(),
+        };
 
-        worker.on('message', (msg: { success: boolean; error?: string }) => {
-          if (msg.success) {
-            finish();
-          } else {
-            finish(new Error(msg.error ?? 'FFmpeg worker failed'));
+        const worker = new Worker(this.resolveWorkerPath(), { workerData });
+
+        worker.on('message', (msg: { type: string; percent?: number; success?: boolean; error?: string }) => {
+          if (msg.type === 'progress' && typeof msg.percent === 'number') {
+            this.onProgress?.({
+              streamId,
+              percent: msg.percent,
+              timestamp: new Date().toISOString(),
+            });
+          } else if (msg.type === 'done') {
+            if (msg.success) {
+              finish();
+            } else {
+              finish(new Error(msg.error ?? 'FFmpeg worker failed'));
+            }
           }
         });
+
         worker.on('error', (error) => finish(error));
         worker.on('exit', (code) => {
-          if (code !== 0) {
+          if (!settled && code !== 0) {
             finish(new Error(`FFmpeg worker exited with code ${code}`));
           }
         });
@@ -278,8 +345,17 @@ export class StreamReconstitutionEngine {
   }
 }
 
+/**
+ * Create an FFmpeg concat demuxer file listing the given segment paths.
+ * Used only from the main process (has access to Electron's app module).
+ * The worker has its own inline version that uses os.tmpdir().
+ */
 export async function createConcatFile(segments: string[]): Promise<string> {
-  const lines = segments.map((segment) => `file '${segment.replace(/'/g, "'\\''")}'`);
+  const lines = segments.map((segment) => {
+    const normalized = segment.replace(/\\/g, '/');
+    const escaped = normalized.replace(/'/g, "'\\''");
+    return `file '${escaped}'`;
+  });
   const content = lines.join('\n');
   const hash = createHash('md5').update(content).digest('hex').slice(0, 8);
   const concatPath = join(app.getPath('temp'), `tan_concat_${hash}.txt`);
