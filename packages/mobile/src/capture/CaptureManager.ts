@@ -28,10 +28,46 @@ function sanitize(segment: string): string {
   return segment.replace(/[^a-z0-9._-]/gi, '_').slice(0, 60) || 'payload';
 }
 
+const MIME_TO_EXT: Record<string, string> = {
+  'video/mp2t':                    'ts',
+  'video/mp4':                     'mp4',
+  'video/webm':                    'webm',
+  'video/ogg':                     'ogv',
+  'audio/mpeg':                    'mp3',
+  'audio/aac':                     'aac',
+  'audio/ogg':                     'ogg',
+  'audio/mp4':                     'm4a',
+  'audio/opus':                    'opus',
+  'image/jpeg':                    'jpg',
+  'image/png':                     'png',
+  'image/webp':                    'webp',
+  'image/gif':                     'gif',
+  'image/avif':                    'avif',
+  'application/vnd.apple.mpegurl': 'm3u8',
+  'application/x-mpegurl':         'm3u8',
+  'application/dash+xml':          'mpd',
+  'application/octet-stream':      'bin',
+};
+
+const KNOWN_MEDIA_EXTS = new Set([
+  'ts', 'm4s', 'fmp4', 'mp4', 'm4v', 'm4a', 'webm', 'mov',
+  'mp3', 'aac', 'ogg', 'opus', 'm3u8', 'mpd', 'jpg', 'jpeg',
+  'png', 'webp', 'gif', 'avif', 'svg',
+]);
+
 function buildSavePath(url: string, mimeType: string, date: Date): string {
   const host = (() => { try { return new URL(url).hostname; } catch { return 'unknown'; } })();
-  const ext  = mimeType.split('/')[1]?.split(';')[0].replace(/[^a-z0-9]/gi, '') || 'bin';
-  const name = sanitize(url.split('/').pop()?.split('?')[0] ?? 'payload');
+  const rawName = url.split('/').pop()?.split('?')[0] ?? '';
+  const urlExt  = rawName.includes('.') ? rawName.split('.').pop()!.toLowerCase() : '';
+  // Use the URL's extension when it's a known media type; otherwise derive from MIME.
+  const ext = KNOWN_MEDIA_EXTS.has(urlExt)
+    ? urlExt
+    : (MIME_TO_EXT[mimeType.split(';')[0].trim().toLowerCase()] ?? 'bin');
+  // Strip the URL's extension from the filename to avoid double-extension.
+  const stem = KNOWN_MEDIA_EXTS.has(urlExt) && rawName.includes('.')
+    ? rawName.slice(0, rawName.lastIndexOf('.'))
+    : rawName;
+  const name = sanitize(stem || 'payload');
   const base = RNFS.ExternalDirectoryPath || RNFS.DocumentDirectoryPath;
   const yyyy = date.getFullYear();
   const mm   = String(date.getMonth() + 1).padStart(2, '0');
@@ -71,9 +107,14 @@ export class CaptureManager {
     this.seen.add(msg.url);
     this.queueDepth++;
 
-    void this.download(msg).finally(() => {
-      this.queueDepth = Math.max(0, this.queueDepth - 1);
-    });
+    void this.download(msg)
+      .catch(() => {
+        // Remove from seen on failure so transient network errors allow a retry.
+        this.seen.delete(msg.url);
+      })
+      .finally(() => {
+        this.queueDepth = Math.max(0, this.queueDepth - 1);
+      });
   }
 
   get depth(): number { return this.queueDepth; }

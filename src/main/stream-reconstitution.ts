@@ -235,13 +235,15 @@ export class StreamReconstitutionEngine {
 
   private extractSegmentNumber(filePath: string): number {
     const name = basename(filePath);
-    // Match trailing numbers before extension: seg_003.ts, chunk-007.m4s
+    // Match trailing numbers before extension: seg_003.ts, chunk-007.m4s, 007.fmp4
     const match = name.match(/[_-]?(\d+)\.[a-z0-9]+$/i);
     if (match) {
       return parseInt(match[1], 10);
     }
-    // Fallback: any sequence of digits in the filename
-    const digits = name.match(/(\d+)/g);
+    // Fallback: search the stem only (not the extension) so "init.fmp4" doesn't
+    // extract "4" from "fmp4" and sort after numbered segments.
+    const stem = name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : name;
+    const digits = stem.match(/(\d+)/g);
     if (digits && digits.length > 0) {
       return parseInt(digits[digits.length - 1], 10);
     }
@@ -334,8 +336,14 @@ export class StreamReconstitutionEngine {
 
         worker.on('error', (error) => finish(error));
         worker.on('exit', (code) => {
-          if (!settled && code !== 0) {
-            finish(new Error(`FFmpeg worker exited with code ${code}`));
+          if (!settled) {
+            // Always settle: code 0 without a 'done' message means worker exited
+            // unexpectedly; code !== 0 means it crashed.
+            finish(new Error(
+              code === 0
+                ? 'FFmpeg worker exited without reporting completion'
+                : `FFmpeg worker exited with code ${code}`,
+            ));
           }
         });
       } catch (error) {

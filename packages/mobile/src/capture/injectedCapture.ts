@@ -55,10 +55,15 @@ export const INJECTED_CAPTURE_SCRIPT = `
     const ct  = response.headers.get('content-type') || '';
     const len = parseInt(response.headers.get('content-length') || '0', 10);
     if (isInteresting(url, ct, len)) {
-      // Clone before reading so caller still gets a usable response
-      response.clone().arrayBuffer().then(buf => {
-        postCapture(url, ct, buf.byteLength);
-      }).catch(() => postCapture(url, ct, len));
+      if (len > 0) {
+        // content-length already known — no need to buffer the response body
+        postCapture(url, ct, len);
+      } else {
+        // No content-length: clone the response to measure the actual body size
+        response.clone().arrayBuffer().then(buf => {
+          postCapture(url, ct, buf.byteLength);
+        }).catch(() => postCapture(url, ct, 0));
+      }
     }
     return response;
   };
@@ -110,6 +115,10 @@ export const INJECTED_CAPTURE_SCRIPT = `
     }
   });
   mediaObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+  // Disconnect when the page hides (SPA soft-nav or WebView recycle) to stop
+  // accumulating DOM observations against a stale document context.
+  window.addEventListener('pagehide', function() { mediaObserver.disconnect(); }, { once: true });
 
   // Also capture any media already in the DOM at injection time
   document.querySelectorAll('video,audio').forEach(el => {

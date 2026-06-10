@@ -51,7 +51,9 @@ export function classifyMediaType(mimeType: string, url: string): CaptureMediaTy
 
   if (mime.includes('mpegurl') || mime.includes('m3u8') || ext === '.m3u8') return 'hls';
   if (mime.includes('dash')     || ext === '.mpd')                           return 'dash';
-  if (ext === '.ts' || ext === '.m4s' || ext === '.fmp4')                    return mime.startsWith('video') ? 'hls' : 'dash';
+  // .ts is always HLS; .m4s/.fmp4 are DASH unless MIME says otherwise
+  if (ext === '.ts')                                                          return 'hls';
+  if (ext === '.m4s' || ext === '.fmp4')                                     return mime.startsWith('video/mp4') ? 'hls' : 'dash';
   if (mime.startsWith('video/') || MEDIA_EXTENSIONS.has(ext))                return 'video';
   if (mime.startsWith('audio/'))                                              return 'audio';
   if (mime.startsWith('image/') || IMAGE_EXTENSIONS.has(ext))                return 'image';
