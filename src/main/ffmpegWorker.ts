@@ -6,14 +6,17 @@
  */
 import { parentPort, workerData } from 'node:worker_threads';
 import { createHash } from 'node:crypto';
-import { writeFile, unlink } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { writeFile, unlink, readFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 interface WorkerInput {
   segments: string[];
   outputPath: string;
+  videoSegments?: string[];
+  audioSegments?: string[];
+  ffmpegPath?: string;
 }
 
 type WorkerMessage =
@@ -24,6 +27,9 @@ type WorkerMessage =
 function post(msg: WorkerMessage): void {
   parentPort?.postMessage(msg);
 }
+
+const MAX_RETRIES = 3;
+const TIMEOUT_MS = 300000; // 5 minutes
 
 /**
  * Build FFmpeg concat demuxer file content.
@@ -71,6 +77,71 @@ function resolveFfmpegBinary(): string {
   }
 
   return process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+}
+
+/**
+ * Validate segment files before concatenation
+ */
+async function validateSegments(segments: string[]): Promise<{ valid: boolean; invalidSegments: string[] }> {
+  const invalidSegments: string[] = [];
+
+  for (const segment of segments) {
+    try {
+      const buffer = readFileSync(segment);
+      if (buffer.length === 0) {
+        invalidSegments.push(segment);
+        continue;
+      }
+
+      // Verify the file is not corrupted by checking if it's a valid TS/M4S file
+      const header = buffer.slice(0, 8);
+      const isValidTs = header[0] === 0x47; // TS sync byte
+      const isValidM4s = buffer.toString('ascii', 4, 8) === 'ftyp'; // M4S box type
+
+      if (!isValidTs && !isValidM4s) {
+        invalidSegments.push(segment);
+      }
+    } catch {
+      invalidSegments.push(segment);
+    }
+  }
+
+  return {
+    valid: invalidSegments.length === 0,
+    invalidSegments,
+  };
+}
+
+/**
+ * Wrap an async function with timeout and retry logic
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries = MAX_RETRIES,
+  timeout = TIMEOUT_MS,
+): Promise<T> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      // Add timeout to the operation
+      const result = await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Operation timed out after ${timeout}ms`)), timeout),
+        ),
+      ]);
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < retries - 1) {
+        // Wait before retry with exponential backoff
+        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+      }
+    }
+  }
+
+  throw lastError || new Error('Operation failed after retries');
 }
 
 // fluent-ffmpeg is a CommonJS module; dynamic import() may wrap it in a `.default`.
@@ -163,6 +234,13 @@ async function run(): Promise<void> {
       throw new Error('No segments provided for reconstitution.');
     }
 
+    // Validate segments before processing
+    post({ type: 'progress', percent: 1 });
+    const validation = await validateSegments(segments);
+    if (!validation.valid) {
+      throw new Error(`Segment validation failed: ${validation.invalidSegments.length} invalid segments`);
+    }
+
     const ffmpegPath = resolveFfmpegBinary();
     const raw = await import('fluent-ffmpeg') as unknown as FfmpegModule;
     const factory = getFactory(raw);
@@ -170,20 +248,30 @@ async function run(): Promise<void> {
 
     const concatFile = await createConcatFile(segments);
 
-    post({ type: 'progress', percent: 1 });
+    post({ type: 'progress', percent: 5 });
 
+    // Use retry logic with timeout for FFmpeg operations
     try {
-      await tryCopyConcat(factory, concatFile, outputPath);
-    } catch {
+      await withRetry(() => tryCopyConcat(factory, concatFile, outputPath));
+    } catch (copyError) {
       // Stream copy failed — likely mixed codecs or corrupted headers.
       // Erase any partial output and retry with full transcode.
       await unlink(outputPath).catch(() => {});
-      post({ type: 'progress', percent: 10 });
-      await tryTranscodeConcat(factory, concatFile, outputPath);
+      post({ type: 'progress', percent: 15 });
+      
+      try {
+        await withRetry(() => tryTranscodeConcat(factory, concatFile, outputPath));
+      } catch (transcodeError) {
+        // Both attempts failed
+        throw new Error(
+          `FFmpeg failed: copy (${copyError instanceof Error ? copyError.message : 'unknown'}) and transcode (${transcodeError instanceof Error ? transcodeError.message : 'unknown'})`
+        );
+      }
     }
 
     await unlink(concatFile).catch(() => {});
 
+    post({ type: 'progress', percent: 100 });
     post({ type: 'done', success: true });
   } catch (error) {
     post({

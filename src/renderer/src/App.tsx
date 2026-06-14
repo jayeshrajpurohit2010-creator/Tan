@@ -386,23 +386,29 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
           </div>
         ) : null}
 
-        {/* ── ACTIVATE / ABORT ARCHIVE MODE ── */}
+        {/* ── ACTIVATE MODE BUTTON ── */}
         <button
           onClick={() => void props.onToggle()}
           disabled={props.isBusy || (props.encryptionEnabled && !props.passphrase && !isActive)}
-          className={`mt-6 w-full border px-5 py-5 text-left font-mono text-base font-black uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-50 ${
+          onKeyDown={(e) => {
+            if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+              e.preventDefault();
+              void props.onToggle();
+            }
+          }}
+          className={`mt-6 w-full border px-6 py-6 text-center font-mono text-lg font-black uppercase tracking-[0.2em] transition disabled:cursor-not-allowed disabled:opacity-50 ${
             isActive
-              ? 'archive-btn-active border-red-400/60 bg-red-500/15 text-red-100 hover:bg-red-400/25'
-              : 'archive-btn-idle border-fuchsia-300 bg-fuchsia-500/20 text-fuchsia-50 shadow-neonPurple hover:bg-fuchsia-400/30'
+              ? 'activate-btn-active border-red-400/70 bg-red-500/20 text-red-100 hover:bg-red-400/30 shadow-neonPink'
+              : 'activate-btn-idle border-fuchsia-300 bg-fuchsia-500/25 text-fuchsia-50 shadow-neonPurple hover:bg-fuchsia-400/35'
           }`}
         >
           {props.isBusy
             ? props.status.mode === 'arming'
-              ? '⟳ Arming...'
-              : '⟳ Flushing...'
+              ? '⟳ ACTIVATING...'
+              : '⟳ DEACTIVATING...'
             : isActive
-              ? '◼ Abort Archive Session'
-              : '▶ Activate Archive Mode'}
+              ? '◼ DEACTIVATE MODE'
+              : '▶ ACTIVATE MODE'}
         </button>
 
         <button

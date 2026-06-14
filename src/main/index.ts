@@ -13,7 +13,8 @@ import {
 } from '../shared/ipc';
 import { CaptureController } from './sync/captureController';
 import { StreamReconstitutionEngine } from './stream-reconstitution';
-import { applyStealthToWebContents, STEALTH_SCRIPTS } from './stealth';
+import { applyStealthToWebContents, applySnapchatStealth, STEALTH_SCRIPTS } from './stealth';
+import { shouldAutoActivate, detectSnapchatMedia } from './snapchat-detector';
 
 let mainWindow: BaseWindow | undefined;
 let dashboardView: WebContentsView | undefined;
@@ -64,7 +65,7 @@ async function engageCaptureController(request: ActivationRequest): Promise<Engi
   }
 
   currentStealthConfig = request.stealth ?? DEFAULT_STEALTH_CONFIG;
-  applyStealthConfig(targetView.webContents, currentStealthConfig);
+  applyStealthConfig(targetView.webContents, currentStealthConfig, request.url);
 
   targetView.setVisible(true);
   applyViewportBounds(latestViewportBounds);
@@ -135,7 +136,7 @@ function preloadPrimaryAuditEndpoint(): void {
     return;
   }
 
-  applyStealthConfig(targetView.webContents, currentStealthConfig);
+  applyStealthConfig(targetView.webContents, currentStealthConfig, PRIMARY_AUDIT_ENDPOINT);
   targetView.setVisible(true);
   applyViewportBounds(latestViewportBounds);
   void targetView.webContents.loadURL(PRIMARY_AUDIT_ENDPOINT);
@@ -249,12 +250,17 @@ function sanitizeBounds(bounds: ViewportBounds): ViewportBounds {
   };
 }
 
-function applyStealthConfig(webContents: Electron.WebContents, config: StealthConfig): void {
+function applyStealthConfig(webContents: Electron.WebContents, config: StealthConfig, url?: string): void {
   if (!config.enabled) {
     return;
   }
 
-  applyStealthToWebContents(webContents);
+  // Apply Snapchat-specific stealth if the URL is Snapchat
+  if (url && shouldAutoActivate(url)) {
+    applySnapchatStealth(webContents);
+  } else {
+    applyStealthToWebContents(webContents);
+  }
 
   const scripts: string[] = [];
   if (config.spoofWebdriver) scripts.push(STEALTH_SCRIPTS.webdriver);

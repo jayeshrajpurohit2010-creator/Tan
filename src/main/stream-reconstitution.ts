@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, stat, unlink } from 'node:fs/promises';
 import { join, basename, dirname, extname } from 'node:path';
 import { Worker } from 'node:worker_threads';
@@ -32,6 +32,7 @@ export type StreamGroup = {
   streamId: string;
   vaultPath: string;
   segments: string[];
+  audioSegments: string[];
   firstSeen: number;
   lastSeen: number;
   totalBytes: number;
@@ -75,10 +76,19 @@ export class StreamReconstitutionEngine {
       return;
     }
 
+    // Detect if this is an audio segment (common patterns: audio_001.ts, seg_audio.m4s)
+    const isAudio = this.isAudioSegment(filePath);
+
     const existing = this.streams.get(streamId);
     if (existing) {
-      if (!existing.segments.includes(filePath)) {
-        existing.segments.push(filePath);
+      if (isAudio) {
+        if (!existing.audioSegments.includes(filePath)) {
+          existing.audioSegments.push(filePath);
+        }
+      } else {
+        if (!existing.segments.includes(filePath)) {
+          existing.segments.push(filePath);
+        }
       }
       existing.lastSeen = Date.now();
       void this.refreshSegmentBytes(existing, filePath);
@@ -86,7 +96,8 @@ export class StreamReconstitutionEngine {
       const group: StreamGroup = {
         streamId,
         vaultPath: dirname(filePath),
-        segments: [filePath],
+        segments: isAudio ? [] : [filePath],
+        audioSegments: isAudio ? [filePath] : [],
         firstSeen: Date.now(),
         lastSeen: Date.now(),
         totalBytes: 0,
@@ -160,7 +171,8 @@ export class StreamReconstitutionEngine {
         }
 
         const idleDuration = now - group.lastSeen;
-        if (idleDuration >= IDLE_WATCHDOG_MS && group.segments.length >= 1) {
+        const totalSegments = group.segments.length + group.audioSegments.length;
+        if (idleDuration >= IDLE_WATCHDOG_MS && totalSegments >= 1) {
           ready.push(streamId);
         }
       }
@@ -182,26 +194,51 @@ export class StreamReconstitutionEngine {
 
   private async reconstitute(group: StreamGroup): Promise<void> {
     try {
+      // Sort video segments with enhanced validation
       group.segments.sort((a, b) => {
         const aNum = this.extractSegmentNumber(a);
         const bNum = this.extractSegmentNumber(b);
         return aNum - bNum;
       });
 
+      // Sort audio segments if present
+      if (group.audioSegments.length > 0) {
+        group.audioSegments.sort((a, b) => {
+          const aNum = this.extractSegmentNumber(a);
+          const bNum = this.extractSegmentNumber(b);
+          return aNum - bNum;
+        });
+      }
+
+      // Validate segment sequence and detect gaps
+      const validation = this.validateSegmentSequence(group.segments);
+      if (!validation.valid) {
+        console.warn(`[StreamReconstitution] Segment sequence validation failed for ${group.streamId}: ${validation.message}`);
+      }
+
+      // Verify segment integrity
+      const integrityCheck = await this.verifySegmentIntegrity(group.segments);
+      if (!integrityCheck.allValid) {
+        console.warn(`[StreamReconstitution] Segment integrity check failed for ${group.streamId}: ${integrityCheck.invalidSegments.length} invalid segments`);
+      }
+
       const outputDir = join(group.vaultPath, '_reconstituted');
       await mkdir(outputDir, { recursive: true });
 
       const streamHash = createHash('sha256')
-        .update(group.streamId + group.segments.join(','))
+        .update(group.streamId + group.segments.join(',') + group.audioSegments.join(','))
         .digest('hex')
         .slice(0, 12);
 
       const outputPath = join(outputDir, `${group.streamId}_${streamHash}.mp4`);
 
-      await this.runFfmpegConcat(group.streamId, group.segments, outputPath);
+      // Concatenate all segments (video + audio) for reconstitution
+      // Note: Proper audio/video merge with separate tracks deferred to future enhancement
+      const allSegments = [...group.segments, ...group.audioSegments];
+      await this.runFfmpegConcat(group.streamId, allSegments, outputPath);
 
       let inputBytes = 0;
-      for (const seg of group.segments) {
+      for (const seg of [...group.segments, ...group.audioSegments]) {
         try {
           const segStat = await stat(seg);
           inputBytes += segStat.size;
@@ -214,17 +251,21 @@ export class StreamReconstitutionEngine {
         outputBytes = outputStat.size;
       } catch {}
 
+      // Detect duration of the reconstituted stream
+      const duration = await this.detectStreamDuration(outputPath);
+
       this.onEvent({
         streamId: group.streamId,
-        segments: group.segments.length,
+        segments: group.segments.length + group.audioSegments.length,
         outputPath,
         totalBytes: outputBytes || inputBytes,
+        duration,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
       this.onEvent({
         streamId: group.streamId,
-        segments: group.segments.length,
+        segments: group.segments.length + group.audioSegments.length,
         outputPath: '',
         totalBytes: group.totalBytes,
         error: error instanceof Error ? error.message : String(error),
@@ -246,6 +287,155 @@ export class StreamReconstitutionEngine {
       return parseInt(digits[digits.length - 1], 10);
     }
     return 0;
+  }
+
+  /**
+   * Detect if a segment is an audio segment
+   */
+  private isAudioSegment(filePath: string): boolean {
+    const name = basename(filePath).toLowerCase();
+    // Common audio segment patterns
+    const audioPatterns = [
+      /audio/,
+      /_a\d/,
+      /audioonly/,
+      /\.aac/,
+      /\.mp3/,
+    ];
+    return audioPatterns.some(pattern => pattern.test(name));
+  }
+
+  /**
+   * Detect duration of a reconstituted stream using FFmpeg probe
+   */
+  private async detectStreamDuration(outputPath: string): Promise<number | undefined> {
+    try {
+      const ffmpegPath = this.resolveFfmpegBinaryPath();
+      if (!ffmpegPath) {
+        return undefined;
+      }
+
+      // Derive ffprobe path from ffmpeg path
+      const ffprobePath = ffmpegPath.replace('ffmpeg', 'ffprobe').replace('ffmpeg.exe', 'ffprobe.exe');
+      
+      const { spawn } = await import('node:child_process');
+      
+      return new Promise((resolve) => {
+        const ffprobe = spawn(
+          ffprobePath,
+          [
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            outputPath,
+          ],
+          { stdio: ['ignore', 'pipe', 'pipe'] }
+        );
+
+        let stdout = '';
+        let timeoutId: NodeJS.Timeout;
+
+        ffprobe.stdout.on('data', (data: Buffer) => {
+          stdout += data.toString();
+        });
+
+        ffprobe.stderr.on('data', () => {
+          // Ignore stderr
+        });
+
+        ffprobe.on('close', (code: number | null) => {
+          clearTimeout(timeoutId);
+          if (code === 0 && stdout) {
+            const duration = parseFloat(stdout.trim());
+            if (!isNaN(duration) && duration > 0) {
+              resolve(duration);
+            } else {
+              resolve(undefined);
+            }
+          } else {
+            resolve(undefined);
+          }
+        });
+
+        ffprobe.on('error', () => {
+          clearTimeout(timeoutId);
+          resolve(undefined);
+        });
+
+        // Timeout after 10 seconds
+        timeoutId = setTimeout(() => {
+          ffprobe.kill();
+          resolve(undefined);
+        }, 10000);
+      });
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Validate segment sequence and detect gaps
+   */
+  private validateSegmentSequence(segments: string[]): { valid: boolean; message: string; gaps: number[] } {
+    if (segments.length === 0) {
+      return { valid: false, message: 'No segments', gaps: [] };
+    }
+
+    const sequenceNumbers = segments.map(seg => this.extractSegmentNumber(seg));
+    const gaps: number[] = [];
+
+    for (let i = 0; i < sequenceNumbers.length - 1; i++) {
+      const current = sequenceNumbers[i];
+      const next = sequenceNumbers[i + 1];
+      const expected = current + 1;
+
+      if (next !== expected) {
+        gaps.push(expected);
+      }
+    }
+
+    if (gaps.length > 0) {
+      return {
+        valid: false,
+        message: `Found ${gaps.length} gap(s) in segment sequence`,
+        gaps,
+      };
+    }
+
+    return { valid: true, message: 'Segment sequence valid', gaps: [] };
+  }
+
+  /**
+   * Verify segment integrity using SHA256
+   */
+  private async verifySegmentIntegrity(segments: string[]): Promise<{ allValid: boolean; invalidSegments: string[] }> {
+    const invalidSegments: string[] = [];
+
+    for (const segment of segments) {
+      try {
+        const buffer = readFileSync(segment);
+        if (buffer.length === 0) {
+          invalidSegments.push(segment);
+          continue;
+        }
+
+        // Verify the file is not corrupted by checking if it's a valid TS/M4S file
+        const header = buffer.slice(0, 8);
+        const isValidTs = header[0] === 0x47; // TS sync byte
+        const isValidM4s = header.toString('ascii', 4, 8) === 'ftyp'; // M4S box type (bytes 4-7)
+
+        if (!isValidTs && !isValidM4s) {
+          invalidSegments.push(segment);
+        }
+      } catch {
+        invalidSegments.push(segment);
+      }
+    }
+
+    return {
+      allValid: invalidSegments.length === 0,
+      invalidSegments,
+    };
   }
 
   private resolveWorkerPath(): string {

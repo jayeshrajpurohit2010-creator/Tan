@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { basename, join } from 'node:path';
+import type { SnapchatMediaInfo } from '../snapchat-detector';
 
 const MIME_EXTENSIONS: Record<string, string> = {
   'application/javascript': 'js',
@@ -93,6 +94,40 @@ export function buildPayloadPath(options: {
 }): string {
   const date = options.date ?? new Date();
   const directory = buildVaultDirectory(options.root, options.endpointUrl, date);
+  const extension = extensionFromMime(options.mimeType, options.responseUrl);
+  const identifier = `${options.sha256.slice(0, 16)}_${sanitizeSegment(options.requestId).slice(0, 18)}`;
+  const fileName = `${compactTimestamp(date)}_${identifier}.${extension}${options.encrypted ? '.enc' : ''}`;
+  return join(directory, fileName);
+}
+
+// Snapchat-specific vault organization
+export function buildSnapchatVaultDirectory(root: string, mediaInfo: SnapchatMediaInfo, date = new Date()): string {
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  
+  // Use friend username or 'unknown' if not available
+  const friendUsername = mediaInfo.friendUsername || 'unknown';
+  const safeFriend = sanitizeSegment(friendUsername);
+  
+  // Use media type (snap, story, spotlight, chat) or 'other'
+  const mediaType = mediaInfo.type === 'unknown' ? 'other' : mediaInfo.type;
+  
+  return join(root, year, month, day, safeFriend, mediaType);
+}
+
+export function buildSnapchatPayloadPath(options: {
+  root: string;
+  mediaInfo: SnapchatMediaInfo;
+  responseUrl: string;
+  mimeType: string;
+  sha256: string;
+  requestId: string;
+  encrypted: boolean;
+  date?: Date;
+}): string {
+  const date = options.date ?? new Date();
+  const directory = buildSnapchatVaultDirectory(options.root, options.mediaInfo, date);
   const extension = extensionFromMime(options.mimeType, options.responseUrl);
   const identifier = `${options.sha256.slice(0, 16)}_${sanitizeSegment(options.requestId).slice(0, 18)}`;
   const fileName = `${compactTimestamp(date)}_${identifier}.${extension}${options.encrypted ? '.enc' : ''}`;

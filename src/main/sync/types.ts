@@ -34,6 +34,13 @@ export type PersistedPayload = {
     iv: string;
     authTag: string;
   };
+  snapchatMedia?: {
+    type: 'snap' | 'story' | 'spotlight' | 'chat' | 'unknown';
+    friendUsername?: string;
+    isFriendStory: boolean;
+    isDiscover: boolean;
+    isEphemeral: boolean;
+  };
 };
 
 export type PersistedError = {

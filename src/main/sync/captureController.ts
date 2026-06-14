@@ -4,6 +4,8 @@ import { decodeCdpBody } from './cdp';
 import { PayloadPersister } from './persister';
 import type { CapturedResponse, EncryptionSettings } from './types';
 import { NoDropWriteQueue } from './writeQueue';
+import { detectSnapchatMedia, getCapturePriority } from '../snapchat-detector';
+import { getPriorityQueue, createPriorityTask } from '../priorityQueue';
 
 type DebuggerMessageParams = Record<string, unknown>;
 
@@ -128,6 +130,11 @@ export class CaptureController {
     this.emitStatus(this.queue.depth > 0 ? 'Flushing queued payload writes.' : 'Sync engine idle.');
     await this.detachDebugger();
     await this.queue.flush();
+    
+    // Also flush the priority queue for ephemeral media
+    const priorityQueue = getPriorityQueue();
+    await priorityQueue.flush();
+    
     this.mode = 'idle';
     this.emitStatus('Sync engine idle.');
     return this.getStatus();
@@ -202,7 +209,13 @@ export class CaptureController {
         requestId: response.requestId,
       });
       const buffer = decodeCdpBody(body as { body: string; base64Encoded: boolean });
-      this.queue.enqueue(async () => {
+      
+      // Detect if this is Snapchat ephemeral media and use priority queue
+      const snapchatMediaInfo = detectSnapchatMedia(response.url, response.mimeType);
+      const isEphemeral = snapchatMediaInfo.isEphemeral;
+      const priority = getCapturePriority(snapchatMediaInfo);
+      
+      const persistTask = async () => {
         try {
           const record = await this.persister?.persist(response, buffer);
           if (record) {
@@ -217,7 +230,21 @@ export class CaptureController {
             this.options.onSyncEvent(toSyncEvent(record, this.queue.depth));
           }
         }
-      });
+      };
+
+      // Use priority queue for ephemeral media, regular queue for everything else
+      if (isEphemeral && priority >= 8) {
+        const priorityQueue = getPriorityQueue();
+        const task = createPriorityTask(
+          response.requestId,
+          persistTask,
+          priority,
+          10000, // 10 second TTL for ephemeral media
+        );
+        priorityQueue.enqueue(task);
+      } else {
+        this.queue.enqueue(persistTask);
+      }
     } catch (error) {
       this.queue.enqueue(async () => {
         const record = await this.persister?.persistError(response, error);

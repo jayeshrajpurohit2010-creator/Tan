@@ -96,6 +96,34 @@ input {
   pointer-events: none;
 }
 
+/* ─── ACTIVATE MODE button ─────────────────────────────────── */
+.activate-btn-active {
+  animation: activatePulse 1.5s ease-in-out infinite;
+}
+
+.activate-btn-idle {
+  position: relative;
+  overflow: hidden;
+}
+
+.activate-btn-idle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(168, 85, 247, 0.25) 50%, transparent 100%);
+  animation: shimmer 2.5s linear infinite;
+  pointer-events: none;
+}
+
+.activate-btn-idle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(168, 85, 247, 0.15) 0%, transparent 70%);
+  animation: pulseGlow 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
 /* ─── Progress bar ────────────────────────────────────────── */
 .progress-bar-fill {
   background: linear-gradient(90deg, rgba(34, 211, 238, 0.8) 0%, rgba(168, 85, 247, 0.9) 100%);
@@ -162,6 +190,26 @@ input {
 @keyframes statusBlink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.3; }
+}
+
+@keyframes activatePulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(248, 113, 113, 0.6), 0 0 40px rgba(248, 113, 113, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(248, 113, 113, 0.9), 0 0 60px rgba(248, 113, 113, 0.5), 0 0 90px rgba(244, 114, 182, 0.2);
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.05);
+  }
 }
 
 .blink {

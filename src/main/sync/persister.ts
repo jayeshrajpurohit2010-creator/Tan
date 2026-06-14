@@ -3,7 +3,8 @@ import { dirname } from 'node:path';
 import { encryptBuffer } from './crypto';
 import { appendManifest } from './manifest';
 import type { CapturedResponse, EncryptionSettings, ManifestRecord, PersistedError, PersistedPayload } from './types';
-import { buildPayloadPath, sha256 } from './vault';
+import { buildPayloadPath, buildSnapchatPayloadPath, sha256 } from './vault';
+import { detectSnapchatMedia } from '../snapchat-detector';
 
 export type PayloadPersisterOptions = {
   root: string;
@@ -18,16 +19,32 @@ export class PayloadPersister {
     const hash = sha256(body);
     const encrypted = this.options.encryption.enabled;
     const payloadDate = new Date(response.timestamp);
-    const savedPath = buildPayloadPath({
-      root: this.options.root,
-      endpointUrl: this.options.endpointUrl,
-      responseUrl: response.url,
-      mimeType: response.mimeType,
-      sha256: hash,
-      requestId: response.requestId,
-      encrypted,
-      date: payloadDate
-    });
+    
+    // Detect if this is Snapchat media and use Snapchat-specific vault organization
+    const snapchatMediaInfo = detectSnapchatMedia(response.url, response.mimeType);
+    const isSnapchat = snapchatMediaInfo.type !== 'unknown';
+    
+    const savedPath = isSnapchat
+      ? buildSnapchatPayloadPath({
+          root: this.options.root,
+          mediaInfo: snapchatMediaInfo,
+          responseUrl: response.url,
+          mimeType: response.mimeType,
+          sha256: hash,
+          requestId: response.requestId,
+          encrypted,
+          date: payloadDate
+        })
+      : buildPayloadPath({
+          root: this.options.root,
+          endpointUrl: this.options.endpointUrl,
+          responseUrl: response.url,
+          mimeType: response.mimeType,
+          sha256: hash,
+          requestId: response.requestId,
+          encrypted,
+          date: payloadDate
+        });
 
     const encryptedPayload = encrypted ? encryptBuffer(body, this.options.encryption.passphrase ?? '') : undefined;
     const bytesToWrite = encryptedPayload?.bytes ?? body;
@@ -58,6 +75,18 @@ export class PayloadPersister {
               salt: encryptedPayload.salt,
               iv: encryptedPayload.iv,
               authTag: encryptedPayload.authTag
+            }
+          }
+        : {}),
+      // Add Snapchat-specific metadata
+      ...(isSnapchat
+        ? {
+            snapchatMedia: {
+              type: snapchatMediaInfo.type,
+              friendUsername: snapchatMediaInfo.friendUsername,
+              isFriendStory: snapchatMediaInfo.isFriendStory,
+              isDiscover: snapchatMediaInfo.isDiscover,
+              isEphemeral: snapchatMediaInfo.isEphemeral,
             }
           }
         : {})
