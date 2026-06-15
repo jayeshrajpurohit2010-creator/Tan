@@ -5,6 +5,9 @@ const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
+const SCRYPT_COST = 16384;
+const SCRYPT_BLOCK_SIZE = 8;
+const SCRYPT_PARALLELIZATION = 1;
 
 export type EncryptedBuffer = {
   bytes: Buffer;
@@ -15,12 +18,16 @@ export type EncryptedBuffer = {
 };
 
 function deriveKey(passphrase: string, salt: Buffer): Buffer {
-  return scryptSync(passphrase, salt, KEY_LENGTH);
+  return scryptSync(passphrase, salt, KEY_LENGTH, {
+    cost: SCRYPT_COST,
+    blockSize: SCRYPT_BLOCK_SIZE,
+    parallelization: SCRYPT_PARALLELIZATION,
+  });
 }
 
 export function encryptBuffer(plain: Buffer, passphrase: string): EncryptedBuffer {
-  if (!passphrase) {
-    throw new Error('Encryption passphrase is required.');
+  if (!passphrase || passphrase.length < 8) {
+    throw new Error('Encryption passphrase is required and must be at least 8 characters.');
   }
 
   const salt = randomBytes(SALT_LENGTH);

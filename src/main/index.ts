@@ -1,5 +1,5 @@
 import { app, BaseWindow, WebContentsView, ipcMain, shell } from 'electron';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import type {
   ActivationRequest,
   EngineStatus,
@@ -282,6 +282,18 @@ ipcMain.handle('tan:get-config', async () => ({
 }));
 
 ipcMain.handle('tan:activate', async (_event, request: ActivationRequest) => {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(request.url);
+  } catch {
+    throw new Error('Invalid URL: must be a valid HTTP or HTTPS URL.');
+  }
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    throw new Error('Invalid URL: only http and https protocols are allowed.');
+  }
+  if (request.encryption.passphrase && typeof request.encryption.passphrase !== 'string') {
+    throw new Error('Invalid encryption passphrase.');
+  }
   autoArchiveRequest = request;
   return engageCaptureController(request);
 });
@@ -311,6 +323,12 @@ ipcMain.handle('tan:open-vault', async () => {
 });
 
 ipcMain.handle('tan:open-file', async (_event, filePath: string) => {
+  const vaultRoot = join(app.getPath('downloads'), 'Tan');
+  const normalizedPath = filePath.replace(/\//g, sep).replace(/\\/g, sep);
+  const normalizedVault = vaultRoot.replace(/\//g, sep).replace(/\\/g, sep);
+  if (!normalizedPath.startsWith(normalizedVault)) {
+    throw new Error('Access denied: path is outside the vault directory.');
+  }
   await shell.openPath(filePath);
 });
 
@@ -325,8 +343,16 @@ ipcMain.handle('tan:toggle-reconstitution', async (_event, enabled: boolean) => 
 });
 
 ipcMain.on('tan:viewport-bounds', (_event, bounds: ViewportBounds) => {
-  latestViewportBounds = bounds;
-  applyViewportBounds(bounds);
+  if (
+    typeof bounds !== 'object' || bounds === null ||
+    typeof bounds.x !== 'number' || typeof bounds.y !== 'number' ||
+    typeof bounds.width !== 'number' || typeof bounds.height !== 'number'
+  ) {
+    return;
+  }
+  const sanitized = sanitizeBounds(bounds);
+  latestViewportBounds = sanitized;
+  applyViewportBounds(sanitized);
 });
 
 app.whenReady().then(() => {

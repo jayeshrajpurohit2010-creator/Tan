@@ -7,3 +7,11 @@ release/
 coverage/
 *.log
 *.local
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.DS_Store
+Thumbs.db

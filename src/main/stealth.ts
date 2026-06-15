@@ -15,14 +15,12 @@ export const COMPLIANCE_LAYER = {
     delete Navigator.prototype.webdriver;
   `,
   hardwareConcurrency: `
-    Object.defineProperty(navigator, 'hardwareConcurrency', {
-      get: () => 8,
-      configurable: true,
-    });
-    Object.defineProperty(navigator, 'deviceMemory', {
-      get: () => 8,
-      configurable: true,
-    });
+    try {
+      Object.defineProperty(navigator, 'hardwareConcurrency', {
+        get: () => 6,
+        configurable: true,
+      });
+    } catch (_) {}
   `,
   plugins: `
     Object.defineProperty(navigator, 'plugins', {
@@ -45,14 +43,16 @@ export const COMPLIANCE_LAYER = {
     });
   `,
   platform: `
-    Object.defineProperty(navigator, 'platform', {
-      get: () => '${PRODUCTION_PLATFORM}',
-      configurable: true,
-    });
-    Object.defineProperty(navigator, 'maxTouchPoints', {
-      get: () => 0,
-      configurable: true,
-    });
+    try {
+      Object.defineProperty(navigator, 'platform', {
+        get: () => 'iPhone',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        get: () => 5,
+        configurable: true,
+      });
+    } catch (_) {}
   `,
   webgl: `
     try {

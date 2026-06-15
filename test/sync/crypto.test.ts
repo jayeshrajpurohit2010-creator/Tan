@@ -13,8 +13,8 @@ describe('AES-256-GCM payload encryption', () => {
   });
 
   it('rejects the wrong passphrase', () => {
-    const encrypted = encryptBuffer(Buffer.from('tan'), 'right');
+    const encrypted = encryptBuffer(Buffer.from('tan'), 'correcthorse');
 
-    expect(() => decryptBuffer(encrypted.bytes, 'wrong')).toThrow();
+    expect(() => decryptBuffer(encrypted.bytes, 'wrongpass')).toThrow();
   });
 });
