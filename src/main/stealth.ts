@@ -1,4 +1,5 @@
 import type { WebContents } from 'electron';
+import { STEALTH_INJECT_LIMITER } from './rateLimiter';
 
 const IOS_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
@@ -297,10 +298,11 @@ export const STEALTH_COMMAND_NAMES: string[] = Object.keys(STEALTH_SCRIPTS);
 
 let cdpInjected = false;
 
-function injectViaCdp(webContents: WebContents): boolean {
+async function injectViaCdp(webContents: WebContents): Promise<boolean> {
   if (!webContents.debugger.isAttached()) {
     return false;
   }
+  await STEALTH_INJECT_LIMITER.waitUntilReady();
   try {
     webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
       source: COMBINED_SCRIPT,
@@ -312,7 +314,8 @@ function injectViaCdp(webContents: WebContents): boolean {
   }
 }
 
-function injectViaExecuteJs(webContents: WebContents): void {
+async function injectViaExecuteJs(webContents: WebContents): Promise<void> {
+  await STEALTH_INJECT_LIMITER.waitUntilReady();
   webContents.executeJavaScript(COMBINED_SCRIPT).catch(() => {});
 }
 
@@ -321,9 +324,11 @@ export function applyStealthToWebContents(webContents: WebContents): void {
     if (cdpInjected) {
       return;
     }
-    if (!injectViaCdp(webContents)) {
-      injectViaExecuteJs(webContents);
-    }
+    void injectViaCdp(webContents).then(success => {
+      if (!success) {
+        void injectViaExecuteJs(webContents);
+      }
+    });
   };
 
   webContents.on('did-navigate', inject);

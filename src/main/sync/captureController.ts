@@ -6,6 +6,7 @@ import type { CapturedResponse, EncryptionSettings } from './types';
 import { NoDropWriteQueue } from './writeQueue';
 import { detectSnapchatMedia, getCapturePriority } from '../snapchat-detector';
 import { getPriorityQueue, createPriorityTask } from '../priorityQueue';
+import { CAPTURE_RATE_LIMITER } from '../rateLimiter';
 
 type DebuggerMessageParams = Record<string, unknown>;
 
@@ -112,6 +113,7 @@ export class CaptureController {
       void this.handleDebuggerMessage(method, params);
     };
     debuggee.on('message', this.messageHandler);
+    await CAPTURE_RATE_LIMITER.waitUntilReady();
     await debuggee.sendCommand('Network.enable', {
       maxTotalBufferSize: 1024 * 1024 * 1024,
       maxResourceBufferSize: 512 * 1024 * 1024,
@@ -205,6 +207,7 @@ export class CaptureController {
     }
 
     try {
+      await CAPTURE_RATE_LIMITER.waitUntilReady();
       const body = await this.target.debugger.sendCommand('Network.getResponseBody', {
         requestId: response.requestId,
       });
