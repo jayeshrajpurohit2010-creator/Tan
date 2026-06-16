@@ -93,6 +93,44 @@ function parseMasterPlaylist(lines: string[], baseUrl: string): HLSMasterPlaylis
 }
 
 /**
+ * Split a string by commas, respecting quoted strings
+ */
+function splitByCommaRespectingQuotes(str: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let quoteChar = '';
+  
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    
+    if (inQuotes) {
+      current += char;
+      if (char === quoteChar) {
+        inQuotes = false;
+      }
+    } else {
+      if (char === '"' || char === "'") {
+        inQuotes = true;
+        quoteChar = char;
+        current += char;
+      } else if (char === ',') {
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+  }
+  
+  if (current) {
+    result.push(current);
+  }
+  
+  return result;
+}
+
+/**
  * Parse stream info from #EXT-X-STREAM-INF line
  */
 function parseStreamInfo(line: string): Omit<HLSVariant, 'url'> {
@@ -100,7 +138,7 @@ function parseStreamInfo(line: string): Omit<HLSVariant, 'url'> {
     bandwidth: 0,
   };
   
-  const params = line.substring('#EXT-X-STREAM-INF:'.length).split(',');
+  const params = splitByCommaRespectingQuotes(line.substring('#EXT-X-STREAM-INF:'.length));
   
   for (const param of params) {
     const [key, value] = param.split('=').map(p => p.trim());
@@ -128,6 +166,7 @@ function parseMediaPlaylist(lines: string[], baseUrl: string): HLSMediaPlaylist 
   
   let currentSegment: Partial<HLSSegment> = {};
   let sequenceNumber = 0;
+  let currentEncryptionState = { isEncrypted: false, encryptionKeyUrl: undefined as string | undefined, encryptionIV: undefined as string | undefined };
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -145,9 +184,11 @@ function parseMediaPlaylist(lines: string[], baseUrl: string): HLSMediaPlaylist 
       currentSegment.discontinuity = false;
     } else if (line.startsWith('#EXT-X-KEY:')) {
       const keyInfo = parseEncryptionKey(line);
-      currentSegment.isEncrypted = true;
-      currentSegment.encryptionKeyUrl = resolveUrl(keyInfo.url, baseUrl);
-      currentSegment.encryptionIV = keyInfo.iv;
+      currentEncryptionState = {
+        isEncrypted: true,
+        encryptionKeyUrl: resolveUrl(keyInfo.url, baseUrl),
+        encryptionIV: keyInfo.iv,
+      };
     } else if (line.startsWith('#EXT-X-DISCONTINUITY')) {
       currentSegment.discontinuity = true;
     } else if (line.startsWith('#EXT-X-MAP:')) {
@@ -159,9 +200,9 @@ function parseMediaPlaylist(lines: string[], baseUrl: string): HLSMediaPlaylist 
           url: resolveUrl(line, baseUrl),
           duration: currentSegment.duration,
           sequenceNumber: sequenceNumber++,
-          isEncrypted: currentSegment.isEncrypted || false,
-          encryptionKeyUrl: currentSegment.encryptionKeyUrl,
-          encryptionIV: currentSegment.encryptionIV,
+          isEncrypted: currentEncryptionState.isEncrypted,
+          encryptionKeyUrl: currentEncryptionState.encryptionKeyUrl,
+          encryptionIV: currentEncryptionState.encryptionIV,
           discontinuity: currentSegment.discontinuity || false,
         });
       }
@@ -186,7 +227,7 @@ function parseEncryptionKey(line: string): { url: string; iv?: string } {
     url: '',
   };
   
-  const params = line.substring('#EXT-X-KEY:'.length).split(',');
+  const params = splitByCommaRespectingQuotes(line.substring('#EXT-X-KEY:'.length));
   
   for (const param of params) {
     const [key, value] = param.split('=').map(p => p.trim());

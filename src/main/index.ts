@@ -1,5 +1,5 @@
 import { app, BaseWindow, WebContentsView, ipcMain, shell } from 'electron';
-import { join, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type {
   ActivationRequest,
   EngineStatus,
@@ -14,7 +14,7 @@ import {
 import { CaptureController } from './sync/captureController';
 import { StreamReconstitutionEngine } from './stream-reconstitution';
 import { applyStealthToWebContents, applySnapchatStealth, STEALTH_SCRIPTS } from './stealth';
-import { shouldAutoActivate, detectSnapchatMedia } from './snapchat-detector';
+import { shouldAutoActivate } from './snapchat-detector';
 
 let mainWindow: BaseWindow | undefined;
 let dashboardView: WebContentsView | undefined;
@@ -294,8 +294,28 @@ ipcMain.handle('tan:activate', async (_event, request: ActivationRequest) => {
   if (request.encryption.passphrase && typeof request.encryption.passphrase !== 'string') {
     throw new Error('Invalid encryption passphrase.');
   }
-  autoArchiveRequest = request;
-  return engageCaptureController(request);
+  if (typeof request.encryption !== 'object' || request.encryption === null) {
+    throw new Error('Invalid encryption settings.');
+  }
+  if (typeof request.stealth !== 'object' || request.stealth === null) {
+    throw new Error('Invalid stealth configuration.');
+  }
+  autoArchiveRequest = {
+    url: request.url,
+    encryption: {
+      enabled: !!request.encryption.enabled,
+      passphrase: typeof request.encryption.passphrase === 'string' ? request.encryption.passphrase : undefined,
+    },
+    stealth: {
+      enabled: !!request.stealth.enabled,
+      spoofWebdriver: !!request.stealth.spoofWebdriver,
+      spoofHardwareConcurrency: !!request.stealth.spoofHardwareConcurrency,
+      spoofWebgl: !!request.stealth.spoofWebgl,
+      spoofPlugins: !!request.stealth.spoofPlugins,
+      spoofPlatform: !!request.stealth.spoofPlatform,
+    },
+  };
+  return engageCaptureController(autoArchiveRequest);
 });
 
 ipcMain.handle('tan:deactivate', async () => {
@@ -323,13 +343,15 @@ ipcMain.handle('tan:open-vault', async () => {
 });
 
 ipcMain.handle('tan:open-file', async (_event, filePath: string) => {
-  const vaultRoot = join(app.getPath('downloads'), 'Tan');
-  const normalizedPath = filePath.replace(/\//g, sep).replace(/\\/g, sep);
-  const normalizedVault = vaultRoot.replace(/\//g, sep).replace(/\\/g, sep);
-  if (!normalizedPath.startsWith(normalizedVault)) {
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    throw new Error('Invalid file path.');
+  }
+  const vaultRoot = resolve(app.getPath('downloads'), 'Tan');
+  const resolvedPath = resolve(filePath);
+  if (!resolvedPath.startsWith(vaultRoot + sep) && resolvedPath !== vaultRoot) {
     throw new Error('Access denied: path is outside the vault directory.');
   }
-  await shell.openPath(filePath);
+  await shell.openPath(resolvedPath);
 });
 
 ipcMain.handle('tan:toggle-reconstitution', async (_event, enabled: boolean) => {

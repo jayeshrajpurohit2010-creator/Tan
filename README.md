@@ -1,44 +1,51 @@
 # Tan
 
-Tan is an Electron desktop synchronizer for high-fidelity local persistence of network response payloads from a developer-selected web endpoint.
+Tan is an Electron desktop forensic capture suite for Snapchat media with advanced stealth and anti-detection capabilities.
 
 ## Features
 
-- Electron 30+ desktop shell with React, Vite, TypeScript, and TailwindCSS.
-- Native `WebContentsView` target viewport embedded inside a cyberpunk terminal dashboard.
-- Chrome DevTools Protocol bridge using `Network.responseReceived`, `Network.loadingFinished`, and `Network.getResponseBody`.
-- Exact CDP body decoding:
-  - base64 bodies are decoded to raw bytes
-  - text bodies are persisted as UTF-8 bytes
-- No target DOM injection, preload, overlay, or in-page sync feedback.
-- No-drop background write queue for intercepted payload persistence.
-- Optional per-session AES-256-GCM encryption.
-- JSONL manifest for every persisted payload or CDP retrieval failure.
+- **Chrome DevTools Protocol network interception** for capturing Snapchat media traffic.
+- **iOS Safari 17 device fingerprint spoofing** with 17 spoofing vectors to evade detection.
+- **CDP-based stealth injection** via `Page.addScriptToEvaluateOnNewDocument` for persistent evasion.
+- **Snapchat media type detection** for snaps, stories, spotlight, and chat content.
+- **Priority queue with TTL** for ephemeral content capture with expiration handling.
+- **HLS manifest parser** for stream reconstitution of live content.
+- **AES-256-GCM encrypted vault** with scrypt key derivation for secure storage.
+- **FFmpeg-based stream reconstitution** converting HLS segments to MP4 format.
+- **Real-time capture gallery** with reconstitution progress tracking.
+- **Auto-detection of Snapchat URLs** for seamless integration.
+
+## Architecture
+
+Tan follows a modular architecture with separate components for:
+
+- **Core capture engine**: CDP integration, network interception, and stealth injection.
+- **Media processing pipeline**: Detection, parsing, queue management, and reconstitution.
+- **Security vault**: Encryption, key derivation, and secure storage.
+- **Electron shell**: React UI, Vite bundling, and desktop integration.
+
+## Commands
+
+```bash
+npm install      # Install dependencies
+npm test         # Run test suite
+npm run dev      # Start development mode
+npm run build    # Build production assets
+npm run dist:win # Package for Windows distribution
+```
+
+## Security
+
+- **SHA-pinned CI** for build integrity verification.
+- **npm audit** integration for dependency vulnerability scanning.
+- **Encrypted vault option** with AES-256-GCM encryption and scrypt key derivation.
 
 ## Vault Layout
 
-Payloads are written to:
+Captured media is organized by date and endpoint:
 
 ```text
 ~/Downloads/Tan/[Year]/[Month]/[Day]/[Endpoint]/[timestamp]_[identifier].ext
 ```
 
-Encrypted payloads keep their detected extension and append `.enc`.
-
-## Commands
-
-```bash
-npm install
-npm test
-npm run build
-npm run pack
-npm run dist:win
-npm run dist:mac
-npm run dev
-```
-
-Distribution artifacts are written to `release/`. Windows installers can be built on Windows with `npm run dist:win`; macOS DMG/ZIP artifacts should be built on macOS with `npm run dist:mac`. The included GitHub Actions workflow builds both platforms from tags or manual dispatch.
-
-## Notes
-
-Tan prioritizes audit integrity over load shedding. If CDP exposes a response body, Tan attempts to persist it and never intentionally skips queued payloads. Browser or CDP-level body retrieval failures are recorded in the manifest instead of being silently ignored.
+Encrypted files retain their original extension with an additional `.enc` suffix.

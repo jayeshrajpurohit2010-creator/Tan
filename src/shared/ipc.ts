@@ -16,7 +16,7 @@ export type ViewportBounds = {
   height: number;
 };
 
-export const PRIMARY_AUDIT_ENDPOINT = 'https://example.com';
+export const PRIMARY_AUDIT_ENDPOINT = 'https://web.snapchat.com';
 
 export function isHighFidelityEndpoint(url: string, designated = PRIMARY_AUDIT_ENDPOINT): boolean {
   try {

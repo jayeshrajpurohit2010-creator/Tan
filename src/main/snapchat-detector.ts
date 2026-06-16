@@ -57,6 +57,9 @@ const SNAPCHAT_PATTERNS = {
     /sc-snapchat\.com/i,
     /snap-ads\.com/i,
     /snapchat\.com\/media/i,
+    /sc-cdn\.net/i,
+    /sc-jpl\.com/i,
+    /sc-static\.net/i,
   ],
 };
 
@@ -107,7 +110,10 @@ function isSnapchatUrl(url: string): boolean {
     
     return hostname.includes('snapchat.com') || 
            hostname.includes('sc-snapchat.com') ||
-           hostname.includes('snap-ads.com');
+           hostname.includes('snap-ads.com') ||
+           hostname.includes('sc-cdn.net') ||
+           hostname.includes('sc-jpl.com') ||
+           hostname.includes('sc-static.net');
   } catch {
     return false;
   }
