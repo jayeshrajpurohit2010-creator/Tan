@@ -1,5 +1,5 @@
 import { app, BaseWindow, WebContentsView, ipcMain, shell } from 'electron';
-import { join, resolve, sep } from 'node:path';
+import { join, sep, resolve } from 'node:path';
 import type {
   ActivationRequest,
   EngineStatus,
@@ -15,6 +15,8 @@ import { CaptureController } from './sync/captureController';
 import { StreamReconstitutionEngine } from './stream-reconstitution';
 import { applyStealthToWebContents, applySnapchatStealth, STEALTH_SCRIPTS } from './stealth';
 import { shouldAutoActivate } from './snapchat-detector';
+
+const IOS_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
 let mainWindow: BaseWindow | undefined;
 let dashboardView: WebContentsView | undefined;
@@ -143,6 +145,8 @@ function preloadPrimaryAuditEndpoint(): void {
 }
 
 function createWindow(): void {
+  app.userAgentFallback = IOS_UA;
+
   mainWindow = new BaseWindow({
     width: 1600,
     height: 1000,
@@ -176,6 +180,18 @@ function createWindow(): void {
   targetView.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
   });
+
+  targetView.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: ['*://*/*'] },
+    (details, callback) => {
+      const headers = details.requestHeaders;
+      headers['User-Agent'] = IOS_UA;
+      headers['sec-ch-ua'] = '"Chromium";v="124", "Google Chrome";v="124"';
+      headers['sec-ch-ua-mobile'] = '?1';
+      headers['sec-ch-ua-platform'] = '"iOS"';
+      callback({ requestHeaders: headers });
+    },
+  );
 
   captureController = new CaptureController({
     vaultRoot: join(app.getPath('downloads'), 'Tan'),

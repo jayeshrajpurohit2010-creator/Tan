@@ -172,11 +172,13 @@ const SNAPCHAT_STEALTH = {
   `,
   connection: `
     try {
+      const baseRtt = 30 + Math.floor(Math.random() * 40);
+      const baseDownlink = 5 + Math.floor(Math.random() * 10);
       Object.defineProperty(navigator, 'connection', {
         get: () => ({
           effectiveType: '4g',
-          rtt: 50,
-          downlink: 10,
+          rtt: baseRtt + Math.floor(Math.random() * 20 - 10),
+          downlink: Math.max(1, baseDownlink + Math.floor(Math.random() * 4 - 2)),
           saveData: false,
           addEventListener: () => {},
           removeEventListener: () => {},
@@ -203,23 +205,44 @@ const SNAPCHAT_STEALTH = {
   canvas: `
     try {
       const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+      const origToBlob = HTMLCanvasElement.prototype.toBlob;
       HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
         const ctx = this.getContext('2d');
         if (ctx && this.width > 0 && this.height > 0) {
           const imageData = ctx.getImageData(0, 0, this.width, this.height);
-          for (let i = 0; i < imageData.data.length; i += 4) {
-            imageData.data[i] = imageData.data[i] + (Math.random() > 0.5 ? 1 : 0);
+          let seed = this.width * 31 + this.height * 17;
+          for (let i = 0; i < Math.min(imageData.data.length, 64); i++) {
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            if ((seed & 3) === 0) {
+              imageData.data[i * 4] = (imageData.data[i * 4] + 1) & 0xff;
+            }
           }
           ctx.putImageData(imageData, 0, 0);
         }
         return origToDataURL.call(this, type, quality);
+      };
+      HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+        const ctx = this.getContext('2d');
+        if (ctx && this.width > 0 && this.height > 0) {
+          const imageData = ctx.getImageData(0, 0, this.width, this.height);
+          let seed = this.width * 31 + this.height * 17;
+          for (let i = 0; i < Math.min(imageData.data.length, 64); i++) {
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            if ((seed & 3) === 0) {
+              imageData.data[i * 4] = (imageData.data[i * 4] + 1) & 0xff;
+            }
+          }
+          ctx.putImageData(imageData, 0, 0);
+        }
+        return origToBlob.call(this, callback, type, quality);
       };
     } catch (_) {}
   `,
   networkTiming: `
     try {
       const origNow = performance.now;
-      const offset = Math.random() * 0.1;
+      const seed = Date.now() % 10000;
+      const offset = (seed % 7) * 0.01 + 0.02;
       performance.now = function() {
         return origNow.call(this) + offset;
       };
@@ -252,6 +275,30 @@ const SNAPCHAT_STEALTH = {
       });
     } catch (_) {}
   `,
+  cdpCountermeasures: `
+    try {
+      const origLog = console.log;
+      const origWarn = console.warn;
+      const origError = console.error;
+      const origInfo = console.info;
+      const origDir = console.dir;
+      const origTable = console.table;
+      const origProfile = console.profile;
+      const origProfileEnd = console.profileEnd;
+      console.log = function() { return origLog.apply(this, arguments); };
+      console.warn = function() { return origWarn.apply(this, arguments); };
+      console.error = function() { return origError.apply(this, arguments); };
+      console.info = function() { return origInfo.apply(this, arguments); };
+      console.dir = function() { return origDir.apply(this, arguments); };
+      console.table = function() { return origTable.apply(this, arguments); };
+      console.profile = function() {};
+      console.profileEnd = function() {};
+    } catch (_) {}
+    try {
+      Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
+      Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+    } catch (_) {}
+  `,
 };
 
 function buildCombinedScript(): string {
@@ -278,6 +325,7 @@ function buildCombinedScript(): string {
     SNAPCHAT_STEALTH.mediaDevices,
     SNAPCHAT_STEALTH.pdfViewerEnabled,
     SNAPCHAT_STEALTH.onLine,
+    SNAPCHAT_STEALTH.cdpCountermeasures,
   ].join('\n');
 }
 
