@@ -174,14 +174,16 @@ const SNAPCHAT_STEALTH = {
     try {
       const connRtt = 30 + Math.floor(Math.random() * 40);
       const connDownlink = 5 + Math.floor(Math.random() * 10);
-      const connObj = {
-        effectiveType: '4g',
-        rtt: connRtt,
-        downlink: connDownlink,
-        saveData: false,
+      const connObj = Object.create({
         addEventListener: () => {},
         removeEventListener: () => {},
-      };
+      });
+      Object.defineProperties(connObj, {
+        effectiveType: { get: () => '4g', configurable: true },
+        rtt: { get: () => connRtt, configurable: true },
+        downlink: { get: () => connDownlink, configurable: true },
+        saveData: { get: () => false, configurable: true },
+      });
       Object.defineProperty(navigator, 'connection', {
         get: () => connObj,
         configurable: true,

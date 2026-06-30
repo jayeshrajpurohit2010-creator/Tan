@@ -10,11 +10,12 @@ import { CAPTURE_RATE_LIMITER } from '../rateLimiter';
 
 type DebuggerMessageParams = Record<string, unknown>;
 
-type CaptureControllerOptions = {
+export type CaptureControllerOptions = {
   vaultRoot: string;
   onStatus(status: EngineStatus): void;
   onSyncEvent(event: SyncEvent): void;
   onPayloadPersisted(filePath: string): void;
+  onSessionExpired?(): void;
 };
 
 type NetworkResponseReceived = {
@@ -44,6 +45,22 @@ type NetworkLoadingFinished = {
 type NetworkLoadingFailed = {
   requestId: string;
   errorText?: string;
+};
+
+type NetworkWebSocketFrameReceived = {
+  requestId: string;
+  timestamp: number;
+  response: {
+    payloadData: string;
+    opcode: number;
+    mask: boolean;
+  };
+};
+
+type NetworkResponseReceivedExtraInfo = {
+  requestId: string;
+  statusCode?: number;
+  headers?: Record<string, string>;
 };
 
 export class CaptureController {
@@ -120,6 +137,10 @@ export class CaptureController {
       maxResourceBufferSize: 512 * 1024 * 1024,
       maxPostDataSize: 64 * 1024 * 1024,
     });
+
+    try {
+      await debuggee.sendCommand('Network.enableWebSocket');
+    } catch { /* optional */ }
 
     this.mode = 'active';
     this.emitStatus('Sync engine active.');
@@ -206,6 +227,49 @@ export class CaptureController {
           this.options.onSyncEvent(toSyncEvent(record, this.queue.depth));
         }
       });
+    }
+
+    if (method === 'Network.webSocketFrameReceived') {
+      const ws = params as NetworkWebSocketFrameReceived;
+      if (ws.response?.opcode === 2 && ws.response.payloadData) {
+        const payload = Buffer.from(ws.response.payloadData, 'base64');
+        if (payload.length > 1024) {
+          const mediaInfo = detectSnapchatMedia(this.endpointUrl ?? '', 'application/octet-stream');
+          if (mediaInfo.type !== 'unknown' && this.persister) {
+            this.queue.enqueue(async () => {
+              const fakeResponse: CapturedResponse = {
+                requestId: ws.requestId,
+                url: this.endpointUrl ?? '',
+                method: 'GET',
+                status: 200,
+                statusText: 'OK',
+                mimeType: 'application/octet-stream',
+                headers: {},
+                timestamp: new Date().toISOString(),
+              };
+              const record = await this.persister?.persist(fakeResponse, payload);
+              if (record) {
+                this.options.onSyncEvent(toSyncEvent(record, this.queue.depth));
+                if (record.savedPath) {
+                  this.options.onPayloadPersisted(record.savedPath);
+                }
+              }
+            });
+          }
+        }
+      }
+      return;
+    }
+
+    if (method === 'Network.responseReceivedExtraInfo') {
+      const extra = params as NetworkResponseReceivedExtraInfo;
+      if (extra.statusCode === 401 || extra.statusCode === 403) {
+        const redirectUrl = extra.headers?.['location'] ?? '';
+        if (redirectUrl.includes('login') || redirectUrl.includes('auth')) {
+          this.options.onSessionExpired?.();
+        }
+      }
+      return;
     }
   }
 
