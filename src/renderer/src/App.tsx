@@ -62,6 +62,11 @@ function App(): JSX.Element {
   const [showStealthPanel, setShowStealthPanel] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<'idle' | 'active' | 'expired' | 'needs-login'>('idle');
+  const [proxyEnabled, setProxyEnabled] = useState(false);
+  const [proxyServer, setProxyServer] = useState('');
+  const [proxyUsername, setProxyUsername] = useState('');
+  const [proxyPassword, setProxyPassword] = useState('');
+  const [showProxyPanel, setShowProxyPanel] = useState(false);
   const [hasError, setHasError] = useState(false);
 
   const isBusy = status.mode === 'arming' || status.mode === 'flushing';
@@ -89,6 +94,12 @@ function App(): JSX.Element {
               passphrase: encryptionEnabled ? passphrase : undefined,
             },
             stealth: stealthConfig,
+            proxy: proxyEnabled ? {
+              enabled: true,
+              server: proxyServer,
+              username: proxyUsername || undefined,
+              password: proxyPassword || undefined,
+            } : undefined,
           });
           setStatus(nextStatus);
           setPassphrase('');
@@ -184,6 +195,12 @@ function App(): JSX.Element {
           passphrase: encryptionEnabled ? passphrase : undefined,
         },
         stealth: stealthConfig,
+        proxy: proxyEnabled ? {
+          enabled: true,
+          server: proxyServer,
+          username: proxyUsername || undefined,
+          password: proxyPassword || undefined,
+        } : undefined,
       });
       setStatus(nextStatus);
       setPassphrase('');
@@ -232,6 +249,16 @@ function App(): JSX.Element {
           setStealthConfig={setStealthConfig}
           showStealthPanel={showStealthPanel}
           setShowStealthPanel={setShowStealthPanel}
+          proxyEnabled={proxyEnabled}
+          setProxyEnabled={setProxyEnabled}
+          proxyServer={proxyServer}
+          setProxyServer={setProxyServer}
+          proxyUsername={proxyUsername}
+          setProxyUsername={setProxyUsername}
+          proxyPassword={proxyPassword}
+          setProxyPassword={setProxyPassword}
+          showProxyPanel={showProxyPanel}
+          setShowProxyPanel={setShowProxyPanel}
         />
 
         <section className="flex min-w-0 flex-col items-center justify-center gap-4">
@@ -308,6 +335,16 @@ type ControlPanelProps = {
   setStealthConfig(config: StealthConfig): void;
   showStealthPanel: boolean;
   setShowStealthPanel(value: boolean): void;
+  proxyEnabled: boolean;
+  setProxyEnabled(value: boolean): void;
+  proxyServer: string;
+  setProxyServer(value: string): void;
+  proxyUsername: string;
+  setProxyUsername(value: string): void;
+  proxyPassword: string;
+  setProxyPassword(value: string): void;
+  showProxyPanel: boolean;
+  setShowProxyPanel(value: boolean): void;
 };
 
 function ControlPanel(props: ControlPanelProps): JSX.Element {
@@ -410,6 +447,55 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
                 disabled={isActive || props.isBusy}
                 onChange={(v) => props.setStealthConfig({ ...props.stealthConfig, enabled: v })}
               />
+            </div>
+          ) : null}
+        </div>
+
+        {/* Proxy panel */}
+        <div className="mt-3 border border-cyan-300/20 bg-cyan-950/10">
+          <button
+            onClick={() => props.setShowProxyPanel(!props.showProxyPanel)}
+            className="flex w-full items-center justify-between px-4 py-3 text-[11px] uppercase tracking-[0.28em] text-cyan-100/80 transition hover:bg-cyan-950/20"
+          >
+            <span>Proxy Settings</span>
+            <span className={`text-[10px] ${props.showProxyPanel ? 'text-cyan-200' : 'text-cyan-100/40'}`}>
+              {props.showProxyPanel ? '▲' : '▼'}
+            </span>
+          </button>
+          {props.showProxyPanel ? (
+            <div className="border-t border-cyan-300/20 px-4 py-3 space-y-2">
+              <StealthToggle
+                label="Enable proxy"
+                checked={props.proxyEnabled}
+                disabled={isActive || props.isBusy}
+                onChange={props.setProxyEnabled}
+              />
+              {props.proxyEnabled ? (
+                <>
+                  <input
+                    value={props.proxyServer}
+                    disabled={isActive || props.isBusy}
+                    onChange={(e) => props.setProxyServer(e.target.value)}
+                    className="w-full border border-cyan-300/35 bg-black/70 px-3 py-2 font-mono text-xs text-cyan-50 outline-none placeholder:text-cyan-100/30"
+                    placeholder="socks5://host:port"
+                  />
+                  <input
+                    value={props.proxyUsername}
+                    disabled={isActive || props.isBusy}
+                    onChange={(e) => props.setProxyUsername(e.target.value)}
+                    className="w-full border border-cyan-300/35 bg-black/70 px-3 py-2 font-mono text-xs text-cyan-50 outline-none placeholder:text-cyan-100/30"
+                    placeholder="Username (optional)"
+                  />
+                  <input
+                    value={props.proxyPassword}
+                    disabled={isActive || props.isBusy}
+                    onChange={(e) => props.setProxyPassword(e.target.value)}
+                    type="password"
+                    className="w-full border border-cyan-300/35 bg-black/70 px-3 py-2 font-mono text-xs text-cyan-50 outline-none placeholder:text-cyan-100/30"
+                    placeholder="Password (optional)"
+                  />
+                </>
+              ) : null}
             </div>
           ) : null}
         </div>

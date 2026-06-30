@@ -3,10 +3,18 @@ export type EncryptionRequest = {
   passphrase?: string;
 };
 
+export type ProxyConfig = {
+  enabled: boolean;
+  server?: string;
+  username?: string;
+  password?: string;
+};
+
 export type ActivationRequest = {
   url: string;
   encryption: EncryptionRequest;
   stealth: StealthConfig;
+  proxy?: ProxyConfig;
 };
 
 export type ViewportBounds = {
