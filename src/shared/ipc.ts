@@ -113,5 +113,6 @@ export type TanApi = {
   onSyncEvent(callback: (event: SyncEvent) => void): () => void;
   onReconstitutionEvent(callback: (event: ReconstitutionEvent) => void): () => void;
   onReconstitutionProgress(callback: (event: ReconstitutionProgressEvent) => void): () => void;
+  onSessionExpired(callback: () => void): () => void;
   openFile(path: string): Promise<void>;
 };

@@ -48,6 +48,11 @@ const api: TanApi = {
     ipcRenderer.on('tan:reconstitution-progress', listener);
     return () => ipcRenderer.off('tan:reconstitution-progress', listener);
   },
+  onSessionExpired(callback: () => void) {
+    const listener = () => callback();
+    ipcRenderer.on('tan:session-expired', listener);
+    return () => ipcRenderer.off('tan:session-expired', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('tan', api);

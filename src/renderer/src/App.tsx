@@ -127,12 +127,16 @@ function App(): JSX.Element {
         return next;
       });
     });
+    const removeSessionExpired = window.tan.onSessionExpired(() => {
+      setError('Session expired. Navigate to web.snapchat.com and log in again.');
+    });
 
     return () => {
       removeStatus();
       removeSyncEvent();
       removeRecon();
       removeProgress();
+      removeSessionExpired();
     };
   }, []);
 

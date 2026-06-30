@@ -179,6 +179,15 @@ export class CaptureController {
 
     if (method === 'Network.responseReceived') {
       const response = params as NetworkResponseReceived;
+      const mimeType = response.response.mimeType || 'application/octet-stream';
+      const skipMimes = [
+        'text/javascript', 'application/javascript', 'text/css',
+        'font/woff', 'font/woff2', 'application/font-woff', 'application/font-woff2',
+        'image/svg+xml', 'text/html',
+      ];
+      if (skipMimes.some(m => mimeType.startsWith(m))) {
+        return;
+      }
       const received: CapturedResponse = {
         requestId: response.requestId,
         url: response.response.url,

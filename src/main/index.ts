@@ -199,6 +199,9 @@ function createWindow(): void {
         streamEngine.registerSegment(filePath);
       }
     },
+    onSessionExpired: () => {
+      dashboardView?.webContents.send('tan:session-expired');
+    },
   });
 
   streamEngine = new StreamReconstitutionEngine(
