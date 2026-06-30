@@ -399,6 +399,17 @@ ipcMain.on('tan:viewport-bounds', (_event, bounds: ViewportBounds) => {
   applyViewportBounds(sanitized);
 });
 
+app.commandLine.appendSwitch('disable-features', 'IsolateOrigins,site-per-process,TranslateUI');
+app.commandLine.appendSwitch('disable-site-isolation-trials');
+app.commandLine.appendSwitch('disable-web-security');
+app.commandLine.appendSwitch('enable-features', 'NetworkService,NetworkServiceInProcess');
+app.commandLine.appendSwitch('disable-background-networking');
+app.commandLine.appendSwitch('disable-default-apps');
+app.commandLine.appendSwitch('disable-extensions');
+app.commandLine.appendSwitch('disable-sync');
+app.commandLine.appendSwitch('disable-breakpad');
+app.commandLine.appendSwitch('metrics-client-id', '');
+
 app.whenReady().then(() => {
   createWindow();
 
