@@ -4,6 +4,9 @@ import { getProxyConfig, setProxyConfig, isProxyActive, buildProxyInfo, applyPro
 function createMockSession() {
   return {
     setProxy: vi.fn().mockResolvedValue(undefined),
+    webRequest: {
+      onAuthRequired: vi.fn(),
+    },
   } as unknown as Electron.Session;
 }
 
