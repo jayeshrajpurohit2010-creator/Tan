@@ -56,6 +56,7 @@ export class CaptureController {
   private active = false;
   private mode: EngineStatus['mode'] = 'idle';
   private messageHandler?: (event: Electron.Event, method: string, params: DebuggerMessageParams) => void;
+  private static readonly MAX_RESPONSES = 500;
 
   constructor(private readonly options: CaptureControllerOptions) {
     this.queue = new NoDropWriteQueue(() => this.emitStatus());
@@ -168,6 +169,13 @@ export class CaptureController {
         timestamp: new Date().toISOString(),
       };
       this.responses.set(response.requestId, received);
+      if (this.responses.size > CaptureController.MAX_RESPONSES) {
+        const oldest = this.responses.keys().next().value;
+        if (oldest) {
+          this.responses.delete(oldest);
+          this.requestMethods.delete(oldest);
+        }
+      }
       return;
     }
 

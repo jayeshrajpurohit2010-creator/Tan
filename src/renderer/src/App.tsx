@@ -19,6 +19,35 @@ const initialStatus: EngineStatus = {
   cdpAttached: false,
 };
 
+const ERROR_MESSAGES: Record<string, string> = {
+  'Net::ERR_INTERNET_DISCONNECTED': 'No internet connection detected. Please check your network and try again.',
+  'ERR_CONNECTION_REFUSED': 'Connection refused. The target endpoint may be temporarily unavailable.',
+  'ERR_CONNECTION_TIMED_OUT': 'Connection timed out. The server took too long to respond.',
+  'ERR_NAME_NOT_RESOLVED': 'DNS resolution failed. Please check the URL or your network settings.',
+  'ERR_SSL_PROTOCOL_ERROR': 'SSL handshake failed. The server may have an invalid certificate.',
+  'ERR_CERT_AUTHORITY_INVALID': 'Certificate authority is invalid. The site may be using a self-signed certificate.',
+  'ERR_ABORTED': 'Navigation was aborted. The page may have been redirected.',
+  'ERR_BLOCKED_BY_CLIENT': 'Request blocked by the browser. Try disabling browser extensions.',
+  'ERR_CONNECTION_RESET': 'Connection was reset. The server may have closed the connection.',
+  'ERR_CONNECTION_CLOSED': 'Connection was closed unexpectedly.',
+  'ERR_CONNECTION_FAILED': 'Connection failed. Please verify the URL and network.',
+  'ERR_SOCKET_NOT_CONNECTED': 'Socket is not connected. Try again in a few seconds.',
+  'ERR_FAILED': 'Network request failed. Check your connection and try again.',
+  'Invalid URL': 'The URL you entered is not valid. Make sure it starts with http:// or https://.',
+  'The page has been disconnected': 'The viewport lost connection. Try reloading by toggling deactivate/activate.',
+  'Snapchat session expired': 'Your Snapchat session has expired. Log in again at web.snapchat.com in the viewport.',
+};
+
+function getHelpfulErrorMessage(raw: string): string {
+  for (const [key, help] of Object.entries(ERROR_MESSAGES)) {
+    if (raw.includes(key)) return help;
+  }
+  if (raw.includes('snaptchat') || raw.includes('Snapchat')) {
+    return `Snapchat error: ${raw}`;
+  }
+  return raw;
+}
+
 function App(): JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [url, setUrl] = useState(PRIMARY_AUDIT_ENDPOINT);
@@ -32,6 +61,8 @@ function App(): JSX.Element {
   const [stealthConfig, setStealthConfig] = useState<StealthConfig>(DEFAULT_STEALTH_CONFIG);
   const [showStealthPanel, setShowStealthPanel] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
+  const [sessionStatus, setSessionStatus] = useState<'idle' | 'active' | 'expired' | 'needs-login'>('idle');
+  const [hasError, setHasError] = useState(false);
 
   const isBusy = status.mode === 'arming' || status.mode === 'flushing';
   const syncEngineLive = status.active && status.cdpAttached && status.mode === 'active';
@@ -230,7 +261,7 @@ function App(): JSX.Element {
                     ? 'Forensic Capture Viewport Online'
                     : status.active
                       ? 'Establishing CDP Attachment'
-                      : 'Loading Primary Audit Endpoint'}
+                      : 'Navigate to web.snapchat.com and log in'}
                 </div>
               </div>
             </div>

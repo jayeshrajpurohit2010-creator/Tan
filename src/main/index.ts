@@ -186,9 +186,6 @@ function createWindow(): void {
     (details, callback) => {
       const headers = details.requestHeaders;
       headers['User-Agent'] = IOS_UA;
-      headers['sec-ch-ua'] = '"Chromium";v="124", "Google Chrome";v="124"';
-      headers['sec-ch-ua-mobile'] = '?1';
-      headers['sec-ch-ua-platform'] = '"iOS"';
       callback({ requestHeaders: headers });
     },
   );
