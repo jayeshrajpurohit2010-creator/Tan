@@ -91,4 +91,26 @@ describe('stealth', () => {
     expect(mockWebContents.on).toHaveBeenCalledWith('did-navigate-in-page', expect.any(Function));
     expect(mockWebContents.on).toHaveBeenCalledWith('dom-ready', expect.any(Function));
   });
+
+  it('combined script contains AudioContext spoofing', () => {
+    expect(ALL_STEALTH_SCRIPTS).toContain('AudioContext');
+    expect(ALL_STEALTH_SCRIPTS).toContain('createOscillator');
+  });
+
+  it('combined script contains font spoofing', () => {
+    expect(ALL_STEALTH_SCRIPTS).toContain('document.fonts');
+    expect(ALL_STEALTH_SCRIPTS).toContain('PingFang');
+  });
+
+  it('combined script contains pdfViewerEnabled', () => {
+    expect(ALL_STEALTH_SCRIPTS).toContain('pdfViewerEnabled');
+  });
+
+  it('combined script contains onLine', () => {
+    expect(ALL_STEALTH_SCRIPTS).toContain('onLine');
+  });
+
+  it('combined script contains connection spoofing', () => {
+    expect(ALL_STEALTH_SCRIPTS).toContain('effectiveType');
+  });
 });

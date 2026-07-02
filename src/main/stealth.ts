@@ -278,6 +278,69 @@ const SNAPCHAT_STEALTH = {
       });
     } catch (_) {}
   `,
+  audioContext: `
+    try {
+      const OrigAudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (OrigAudioContext) {
+        const origCreateOscillator = OrigAudioContext.prototype.createOscillator;
+        OrigAudioContext.prototype.createOscillator = function() {
+          const osc = origCreateOscillator.call(this);
+          const origGetFloatFrequencyData = osc.frequency?.getFloatFrequencyData;
+          if (origGetFloatFrequencyData) {
+            osc.frequency.getFloatFrequencyData = function(array) {
+              origGetFloatFrequencyData.call(this, array);
+              for (let i = 0; i < Math.min(array.length, 4); i++) {
+                array[i] += (Math.random() - 0.5) * 0.001;
+              }
+            };
+          }
+          return osc;
+        };
+        const origCreateAnalyser = OrigAudioContext.prototype.createAnalyser;
+        OrigAudioContext.prototype.createAnalyser = function() {
+          const analyser = origCreateAnalyser.call(this);
+          const origGetFloatTimeDomainData = analyser.getFloatTimeDomainData;
+          if (origGetFloatTimeDomainData) {
+            analyser.getFloatTimeDomainData = function(array) {
+              origGetFloatTimeDomainData.call(this, array);
+              for (let i = 0; i < Math.min(array.length, 4); i++) {
+                array[i] += (Math.random() - 0.5) * 0.0001;
+              }
+            };
+          }
+          return analyser;
+        };
+      }
+    } catch (_) {}
+  `,
+  fonts: `
+    try {
+      const origCheck = document.fonts?.check?.bind(document.fonts);
+      if (origCheck) {
+        const iosFonts = [
+          '12px "Helvetica Neue"', '12px "San Francisco"', '12px "SF Pro Text"',
+          '12px "SF Pro Display"', '12px system-ui', '12px -apple-system',
+          '12px "PingFang SC"', '12px "PingFang TC"', '12px "PingFang HK"',
+        ];
+        document.fonts.check = function(font: string, text?: string) {
+          const result = origCheck(font, text);
+          if (!result && iosFonts.some(f => font.includes(f.split(' ')[1]))) {
+            return true;
+          }
+          return result;
+        };
+      }
+      if (document.fonts) {
+        const origValues = Object.getOwnPropertyDescriptor(FontFaceSet.prototype, 'size');
+        if (origValues) {
+          Object.defineProperty(document.fonts, 'size', {
+            get: () => 15,
+            configurable: true,
+          });
+        }
+      }
+    } catch (_) {}
+  `,
   cdpCountermeasures: `
     try {
       const origLog = console.log;
@@ -328,6 +391,8 @@ function buildCombinedScript(): string {
     SNAPCHAT_STEALTH.mediaDevices,
     SNAPCHAT_STEALTH.pdfViewerEnabled,
     SNAPCHAT_STEALTH.onLine,
+    SNAPCHAT_STEALTH.audioContext,
+    SNAPCHAT_STEALTH.fonts,
     SNAPCHAT_STEALTH.cdpCountermeasures,
   ].join('\n');
 }
