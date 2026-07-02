@@ -5,7 +5,7 @@
  * Electron process.
  */
 import { parentPort, workerData } from 'node:worker_threads';
-import { createHash } from 'node:crypto';
+import { createHash, createDecipheriv } from 'node:crypto';
 import { writeFile, unlink, readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,6 +17,8 @@ interface WorkerInput {
   videoSegments?: string[];
   audioSegments?: string[];
   ffmpegPath?: string;
+  encryptionKeys?: Record<string, string>; // keyUrl -> hex key
+  encryptionIVs?: Record<string, string>;  // keyUrl -> hex IV
 }
 
 type WorkerMessage =
@@ -44,6 +46,54 @@ function buildConcatContent(segments: string[]): string {
       return `file '${escaped}'`;
     })
     .join('\n');
+}
+
+/**
+ * Decrypt an AES-128-CBC encrypted segment file.
+ * Returns the decrypted buffer written to a temp file.
+ */
+async function decryptSegment(
+  encryptedPath: string,
+  keyHex: string,
+  ivHex: string,
+): Promise<string> {
+  const encrypted = await readFile(encryptedPath);
+  const key = Buffer.from(keyHex, 'hex');
+  const iv = Buffer.from(ivHex, 'hex');
+  const decipher = createDecipheriv('aes-128-cbc', key, iv);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  const hash = createHash('md5').update(encryptedPath).digest('hex').slice(0, 8);
+  const outPath = join(tmpdir(), `tan_dec_${hash}.ts`);
+  await writeFile(outPath, decrypted);
+  return outPath;
+}
+
+/**
+ * Segment Buffer Manager — handles out-of-order segments and
+ * deduplicates by content hash. Returns sorted, validated segment paths.
+ */
+class SegmentBuffer {
+  private seen = new Set<string>();
+  private buffer: Array<{ path: string; order: number }> = [];
+
+  add(filePath: string, order: number): void {
+    const normalized = filePath.replace(/\\/g, '/');
+    if (this.seen.has(normalized)) {
+      return;
+    }
+    this.seen.add(normalized);
+    this.buffer.push({ path: filePath, order });
+  }
+
+  getSorted(): string[] {
+    return this.buffer
+      .sort((a, b) => a.order - b.order)
+      .map((entry) => entry.path);
+  }
+
+  get size(): number {
+    return this.buffer.length;
+  }
 }
 
 async function createConcatFile(segments: string[]): Promise<string> {
@@ -228,17 +278,47 @@ async function tryTranscodeConcat(
 
 async function run(): Promise<void> {
   try {
-    const { segments, outputPath } = workerData as WorkerInput;
+    const input = workerData as WorkerInput;
+    const { segments, outputPath } = input;
 
     if (!Array.isArray(segments) || segments.length === 0) {
       throw new Error('No segments provided for reconstitution.');
     }
 
-    // Validate segments before processing
+    // Build segment buffer (deduplicates, sorts by order)
     post({ type: 'progress', percent: 1 });
-    const validation = await validateSegments(segments);
+    const buffer = new SegmentBuffer();
+    for (let i = 0; i < segments.length; i++) {
+      buffer.add(segments[i], i);
+    }
+    const sortedSegments = buffer.getSorted();
+
+    // Validate segments before processing
+    const validation = await validateSegments(sortedSegments);
     if (!validation.valid) {
       throw new Error(`Segment validation failed: ${validation.invalidSegments.length} invalid segments`);
+    }
+
+    // Decrypt encrypted segments if keys are provided
+    const decryptedPaths: string[] = [];
+    const keys = input.encryptionKeys ?? {};
+    const ivs = input.encryptionIVs ?? {};
+    const processedSegments: string[] = [];
+
+    for (const seg of sortedSegments) {
+      const keyUrl = Object.keys(keys).find((k) => seg.includes(k));
+      if (keyUrl && keys[keyUrl] && ivs[keyUrl]) {
+        try {
+          const decryptedPath = await decryptSegment(seg, keys[keyUrl], ivs[keyUrl]);
+          decryptedPaths.push(decryptedPath);
+          processedSegments.push(decryptedPath);
+        } catch {
+          // Decryption failed — use original segment
+          processedSegments.push(seg);
+        }
+      } else {
+        processedSegments.push(seg);
+      }
     }
 
     const ffmpegPath = resolveFfmpegBinary();
@@ -246,7 +326,7 @@ async function run(): Promise<void> {
     const factory = getFactory(raw);
     factory.setFfmpegPath(ffmpegPath);
 
-    const concatFile = await createConcatFile(segments);
+    const concatFile = await createConcatFile(processedSegments);
 
     post({ type: 'progress', percent: 5 });
 
@@ -269,7 +349,11 @@ async function run(): Promise<void> {
       }
     }
 
+    // Cleanup temp files
     await unlink(concatFile).catch(() => {});
+    for (const p of decryptedPaths) {
+      await unlink(p).catch(() => {});
+    }
 
     post({ type: 'progress', percent: 100 });
     post({ type: 'done', success: true });

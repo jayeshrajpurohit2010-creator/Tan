@@ -498,6 +498,8 @@ export class StreamReconstitutionEngine {
           segments: string[];
           outputPath: string;
           ffmpegPath?: string;
+          encryptionKeys?: Record<string, string>;
+          encryptionIVs?: Record<string, string>;
         } = {
           segments,
           outputPath,
