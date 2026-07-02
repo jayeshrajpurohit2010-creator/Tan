@@ -53,6 +53,9 @@ const api: TanApi = {
     ipcRenderer.on('tan:session-expired', listener);
     return () => ipcRenderer.off('tan:session-expired', listener);
   },
+  checkIp() {
+    return ipcRenderer.invoke('tan:check-ip');
+  },
 };
 
 contextBridge.exposeInMainWorld('tan', api);

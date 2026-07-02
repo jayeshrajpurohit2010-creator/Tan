@@ -60,7 +60,7 @@ type XrayConfig = {
 };
 
 function generateXrayConfig(safariFingerprint = true): XrayConfig {
-  return {
+  const config: XrayConfig = {
     inbound: [
       {
         port: XRAY_PORT,
@@ -70,29 +70,16 @@ function generateXrayConfig(safariFingerprint = true): XrayConfig {
           udp: true,
         },
       },
-      {
-        port: XRAY_API_PORT,
-        protocol: 'dokodemo-door',
-        settings: {
-          address: '127.0.0.1',
-        },
-      },
     ],
     outbound: [
       {
         protocol: 'freedom',
         settings: {},
-        streamSettings: {
-          security: 'tls',
-          tlsSettings: {
-            fingerprint: safariFingerprint ? 'safari' : 'chrome',
-            alpn: ['h2', 'http/1.1'],
-            allowInsecure: false,
-          },
-        },
       },
     ],
   };
+
+  return config;
 }
 
 function writeConfigFile(config: XrayConfig): void {
@@ -158,18 +145,21 @@ async function downloadXrayBinary(): Promise<string> {
   }
 }
 
-async function waitForPort(port: number, timeoutMs = 10000): Promise<boolean> {
+async function waitForPort(port: number, timeoutMs = 15000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
       await new Promise<void>((resolve, reject) => {
-        const socket = require('node:net').createConnection(port, '127.0.0.1');
+        const net = require('node:net');
+        const socket = net.createConnection(port, '127.0.0.1');
+        socket.setTimeout(2000);
         socket.on('connect', () => { socket.destroy(); resolve(); });
         socket.on('error', () => { socket.destroy(); reject(); });
+        socket.on('timeout', () => { socket.destroy(); reject(); });
       });
       return true;
     } catch {
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 500));
     }
   }
   return false;
@@ -193,27 +183,33 @@ export async function startXrayCore(): Promise<{ socksPort: number; apiPort: num
 
     let started = false;
 
+    const onReady = (): void => {
+      if (started) return;
+      started = true;
+      waitForPort(XRAY_PORT).then((ready) => {
+        if (ready) {
+          isRunning = true;
+          resolve({ socksPort: XRAY_PORT, apiPort: XRAY_API_PORT });
+        } else {
+          reject(new Error('Xray-core started but port not reachable'));
+        }
+      });
+    };
+
     xrayProcess.stdout?.on('data', (data: Buffer) => {
       const msg = data.toString();
-      if (!started && (msg.includes('started') || msg.includes('listening'))) {
-        started = true;
-        waitForPort(XRAY_PORT).then((ready) => {
-          if (ready) {
-            isRunning = true;
-            resolve({ socksPort: XRAY_PORT, apiPort: XRAY_API_PORT });
-          } else {
-            reject(new Error('Xray-core started but port not reachable'));
-          }
-        });
+      if (msg.includes('started') || msg.includes('listening')) {
+        onReady();
       }
     });
 
     xrayProcess.stderr?.on('data', (data: Buffer) => {
       const msg = data.toString();
-      if (msg.includes('fatal') || msg.includes('error')) {
-        if (!started) {
-          reject(new Error(`Xray-core error: ${msg.trim()}`));
-        }
+      if (msg.includes('started') || msg.includes('listening')) {
+        onReady();
+      }
+      if ((msg.includes('fatal') || msg.includes('FATAL')) && !started) {
+        reject(new Error(`Xray-core fatal: ${msg.trim()}`));
       }
     });
 
