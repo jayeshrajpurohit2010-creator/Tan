@@ -262,8 +262,8 @@ function App(): JSX.Element {
           setShowProxyPanel={setShowProxyPanel}
         />
 
-        <section className="flex min-w-0 flex-col items-center justify-center gap-4 pointer-events-none">
-          <div className="w-full max-w-[520px] pointer-events-none">
+        <section className="flex min-w-0 flex-col items-center justify-center gap-4">
+          <div className="w-full max-w-[520px]">
             <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.32em] text-cyan-200/80">
               <span>Mobile Desktop Hybrid</span>
               <span className={syncEngineLive ? 'text-green-300' : status.active ? 'text-amber-200' : 'text-cyan-200/50'}>
@@ -275,7 +275,7 @@ function App(): JSX.Element {
               </span>
             </div>
             <div
-              className={`mobile-shell relative mx-auto aspect-[9/19.5] w-full max-w-[430px] overflow-hidden rounded-[28px] border bg-black pointer-events-none ${
+              className={`mobile-shell relative mx-auto aspect-[9/19.5] w-full max-w-[430px] overflow-hidden rounded-[28px] border bg-transparent ${
                 syncEngineLive
                   ? 'capture-active border-fuchsia-400/55 shadow-neonPurple'
                   : status.active
@@ -283,19 +283,11 @@ function App(): JSX.Element {
                     : 'border-fuchsia-400/25'
               }`}
             >
-              <div className="absolute inset-x-16 top-2 z-20 h-5 rounded-b-2xl bg-black/90 shadow-neonCyan" />
+              <div className="absolute inset-x-16 top-2 z-20 h-5 rounded-b-2xl bg-transparent" />
               <div
                 ref={viewportRef}
-                className="absolute inset-[18px] overflow-hidden rounded-[20px] border border-cyan-300/35 bg-transparent pointer-events-none"
-              >
-                <div className="flex h-full items-center justify-center px-8 text-center text-xs uppercase tracking-[0.26em] text-fuchsia-200/50 pointer-events-none">
-                  {syncEngineLive
-                    ? 'Forensic Capture Viewport Online'
-                    : status.active
-                      ? 'Establishing CDP Attachment'
-                      : ''}
-                </div>
-              </div>
+                className="absolute inset-[18px] overflow-hidden rounded-[20px] border border-cyan-300/35 bg-transparent"
+              />
             </div>
           </div>
 
