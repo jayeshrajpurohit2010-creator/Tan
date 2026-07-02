@@ -114,21 +114,22 @@ function resolveXrayBinary(): string | null {
   return null;
 }
 
-async function downloadXrayBinary(): Promise<string> {
-  ensureDirs();
+function getXrayFileName(): string {
   const platform = process.platform;
-  const ext = '.zip';
-
   const platformMap: Record<string, string> = {
     win32: 'windows',
     darwin: 'macos',
     linux: 'linux',
   };
-
   const osName = platformMap[platform] || 'linux';
-  const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
-  const fileName = `Xray-${osName}-${arch}${ext}`;
-  const downloadUrl = `https://github.com/XTLS/Xray-core/releases/download/v25.3.6/${fileName}`;
+  const arch = process.arch === 'arm64' ? 'arm64-v8a' : '64';
+  return `Xray-${osName}-${arch}.zip`;
+}
+
+async function downloadXrayBinary(): Promise<string> {
+  ensureDirs();
+  const fileName = getXrayFileName();
+  const downloadUrl = `https://github.com/XTLS/Xray-core/releases/download/v26.3.27/${fileName}`;
 
   if (!existsSync(xrayDir)) {
     mkdirSync(xrayDir, { recursive: true });
