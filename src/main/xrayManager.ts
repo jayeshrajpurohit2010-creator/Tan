@@ -195,7 +195,7 @@ export async function startXrayCore(): Promise<{ socksPort: number; apiPort: num
 
     xrayProcess.stdout?.on('data', (data: Buffer) => {
       const msg = data.toString();
-      if (!started && msg.includes('listening')) {
+      if (!started && (msg.includes('started') || msg.includes('listening'))) {
         started = true;
         waitForPort(XRAY_PORT).then((ready) => {
           if (ready) {

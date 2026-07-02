@@ -13,10 +13,10 @@ const mockReadFileSync = vi.fn(() => '');
 const mockWriteFileSync = vi.fn();
 const mockMkdirSync = vi.fn();
 vi.mock('node:fs', () => ({
-  existsSync: (...args: unknown[]) => mockExistsSync(...args),
-  readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
-  writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
-  mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+  existsSync: (...args: []) => mockExistsSync(...args),
+  readFileSync: (...args: []) => mockReadFileSync(...args),
+  writeFileSync: (...args: []) => mockWriteFileSync(...args),
+  mkdirSync: (...args: []) => mockMkdirSync(...args),
 }));
 
 import {
