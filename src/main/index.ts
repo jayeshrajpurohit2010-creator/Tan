@@ -259,7 +259,13 @@ function resizeDashboard(): void {
   }
 
   const [width, height] = mainWindow.getContentSize();
-  dashboardView.setBounds({ x: 0, y: 0, width, height });
+  // Leave a gap in the center for targetView (340px left panel + 360px right panel)
+  const leftPanel = 340;
+  const rightPanel = 360;
+  const viewportGap = width - leftPanel - rightPanel;
+  // Create two non-overlapping regions: left sidebar and right panel
+  // The center viewport area is NOT covered by dashboardView
+  dashboardView.setBounds({ x: 0, y: 0, width: leftPanel, height });
   applyViewportBounds(latestViewportBounds);
 }
 
