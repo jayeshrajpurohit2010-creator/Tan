@@ -265,30 +265,16 @@ function App(): JSX.Element {
         <section className="flex min-w-0 flex-col items-center justify-center gap-4">
           <div className="w-full max-w-[520px]">
             <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.32em] text-cyan-200/80">
-              <span>Mobile Desktop Hybrid</span>
+              <span>Snapchat Capture Viewport</span>
               <span className={syncEngineLive ? 'text-green-300' : status.active ? 'text-amber-200' : 'text-cyan-200/50'}>
                 {syncEngineLive
-                  ? '● Sync Engine Active'
+                  ? '● Active'
                   : status.active
-                    ? '◐ CDP Attaching'
-                    : '○ Viewport Standby'}
+                    ? '◐ Arming'
+                    : '○ Standby'}
               </span>
             </div>
-            <div
-              className={`mobile-shell relative mx-auto aspect-[9/19.5] w-full max-w-[430px] overflow-hidden rounded-[28px] border bg-transparent ${
-                syncEngineLive
-                  ? 'capture-active border-fuchsia-400/55 shadow-neonPurple'
-                  : status.active
-                    ? 'border-amber-400/35'
-                    : 'border-fuchsia-400/25'
-              }`}
-            >
-              <div className="absolute inset-x-16 top-2 z-20 h-5 rounded-b-2xl bg-transparent" />
-              <div
-                ref={viewportRef}
-                className="absolute inset-[18px] overflow-hidden rounded-[20px] border border-cyan-300/35 bg-transparent"
-              />
-            </div>
+            <div className="aspect-[9/19.5] w-full max-w-[430px] rounded-[28px] border border-cyan-300/20 bg-black/50" />
           </div>
 
           <div className="w-full max-w-[520px] border border-fuchsia-400/15 bg-fuchsia-950/5 p-3">
