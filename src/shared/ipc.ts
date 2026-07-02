@@ -8,6 +8,7 @@ export type ProxyConfig = {
   server?: string;
   username?: string;
   password?: string;
+  useXray?: boolean;
 };
 
 export type ActivationRequest = {

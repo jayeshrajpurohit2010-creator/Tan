@@ -15,7 +15,8 @@ import { CaptureController } from './sync/captureController';
 import { StreamReconstitutionEngine } from './stream-reconstitution';
 import { applyStealthToWebContents, applySnapchatStealth, STEALTH_SCRIPTS } from './stealth';
 import { shouldAutoActivate } from './snapchat-detector';
-import { applyProxyToSession, setProxyConfig } from './proxyManager';
+import { applyProxyToSession, setProxyConfig, startXrayProxy } from './proxyManager';
+import { stopXrayCore } from './xrayManager';
 
 const IOS_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
@@ -72,7 +73,11 @@ async function engageCaptureController(request: ActivationRequest): Promise<Engi
 
   if (request.proxy) {
     setProxyConfig(request.proxy);
-    await applyProxyToSession(targetView.webContents.session);
+    if (request.proxy.useXray) {
+      await startXrayProxy(targetView.webContents.session);
+    } else {
+      await applyProxyToSession(targetView.webContents.session);
+    }
   }
 
   targetView.setVisible(true);
@@ -421,7 +426,12 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  stopXrayCore();
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  stopXrayCore();
 });

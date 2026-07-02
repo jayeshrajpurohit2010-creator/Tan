@@ -116,12 +116,12 @@ export function launchManualLoginWindow(
           cookies: cookies.map((c) => ({
             name: c.name,
             value: c.value,
-            domain: c.domain,
-            path: c.path,
+            domain: c.domain ?? '',
+            path: c.path ?? '/',
             expires: c.expirationDate ?? 0,
-            httpOnly: c.httpOnly,
-            secure: c.secure,
-            sameSite: c.sameSite === 'no_restriction' ? 'none' : (c.sameSite ?? 'lax'),
+            httpOnly: c.httpOnly ?? false,
+            secure: c.secure ?? false,
+            sameSite: (c.sameSite === 'no_restriction' ? 'none' : (c.sameSite === 'unspecified' ? 'lax' : (c.sameSite ?? 'lax'))) as 'strict' | 'lax' | 'none',
           })),
           localStorage: typeof localStorage === 'string' ? JSON.parse(localStorage) : {},
           capturedAt: new Date().toISOString(),
@@ -160,6 +160,7 @@ export async function injectSessionTokens(
   for (const cookie of tokens.cookies) {
     try {
       await targetSession.cookies.set({
+        url: `https://${cookie.domain}${cookie.path}`,
         name: cookie.name,
         value: cookie.value,
         domain: cookie.domain,
@@ -167,7 +168,7 @@ export async function injectSessionTokens(
         expirationDate: cookie.expires || undefined,
         httpOnly: cookie.httpOnly,
         secure: cookie.secure,
-        sameSite: cookie.sameSite,
+        sameSite: cookie.sameSite === 'none' ? 'no_restriction' : cookie.sameSite,
       });
     } catch {
       // Some cookies may fail to set — continue with others
