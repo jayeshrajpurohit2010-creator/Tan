@@ -36,7 +36,7 @@ let autoArchiveRequest: ActivationRequest = {
 let autoArchiveInFlight = false;
 let cdpStatusTimer: NodeJS.Timeout | undefined;
 
-const minimumViewport: ViewportBounds = { x: 0, y: 0, width: 1, height: 1 };
+const minimumViewport: ViewportBounds = { x: 0, y: 0, width: 430, height: 700 };
 
 function sendStatus(status: EngineStatus): void {
   dashboardView?.webContents.send('tan:status', status);
@@ -377,12 +377,38 @@ ipcMain.handle('tan:open-file', async (_event, filePath: string) => {
   if (typeof filePath !== 'string' || filePath.length === 0) {
     throw new Error('Invalid file path.');
   }
-  const vaultRoot = resolve(app.getPath('downloads'), 'Tan');
-  const resolvedPath = resolve(filePath);
-  if (!resolvedPath.startsWith(vaultRoot + sep) && resolvedPath !== vaultRoot) {
+  const vaultRoot = join(app.getPath('downloads'), 'Tan');
+  const normalizedPath = filePath.replace(/\//g, sep).replace(/\\/g, sep);
+  const normalizedVault = vaultRoot.replace(/\//g, sep).replace(/\\/g, sep);
+  if (!normalizedPath.startsWith(normalizedVault)) {
     throw new Error('Access denied: path is outside the vault directory.');
   }
-  await shell.openPath(resolvedPath);
+  await shell.openPath(filePath);
+});
+
+ipcMain.handle('tan:check-ip', async () => {
+  try {
+    const { net } = await import('electron');
+    return await new Promise<string>((resolve, reject) => {
+      const req = net.request('https://api.ipify.org?format=json');
+      req.on('response', (response) => {
+        let data = '';
+        response.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+        response.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            resolve(json.ip || 'unknown');
+          } catch {
+            resolve('parse-error');
+          }
+        });
+      });
+      req.on('error', (err) => reject(err));
+      req.end();
+    });
+  } catch (err) {
+    throw new Error(`IP check failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 });
 
 ipcMain.handle('tan:toggle-reconstitution', async (_event, enabled: boolean) => {

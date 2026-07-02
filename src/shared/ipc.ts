@@ -124,4 +124,5 @@ export type TanApi = {
   onReconstitutionProgress(callback: (event: ReconstitutionProgressEvent) => void): () => void;
   onSessionExpired(callback: () => void): () => void;
   openFile(path: string): Promise<void>;
+  checkIp(): Promise<string>;
 };
