@@ -71,7 +71,16 @@ async function engageCaptureController(request: ActivationRequest): Promise<Engi
   currentStealthConfig = request.stealth ?? DEFAULT_STEALTH_CONFIG;
   applyStealthConfig(targetView.webContents, currentStealthConfig, request.url);
 
-  if (request.proxy) {
+  // Auto-start Xray for Snapchat domains (TLS fingerprint rewriting)
+  const isSnapchat = request.url.includes('snapchat.com');
+  if (isSnapchat && !request.proxy?.useXray) {
+    try {
+      console.log('[Tan] Auto-starting Xray-core for Snapchat TLS fingerprint...');
+      await startXrayProxy(targetView.webContents.session);
+    } catch (err) {
+      console.warn('[Tan] Xray-core auto-start failed, continuing without TLS rewrite:', err);
+    }
+  } else if (request.proxy) {
     setProxyConfig(request.proxy);
     if (request.proxy.useXray) {
       await startXrayProxy(targetView.webContents.session);
@@ -82,6 +91,10 @@ async function engageCaptureController(request: ActivationRequest): Promise<Engi
 
   targetView.setVisible(true);
   applyViewportBounds(latestViewportBounds);
+
+  console.log(`[Tan] Activating capture for: ${request.url}`);
+  console.log(`[Tan] Stealth enabled: ${currentStealthConfig.enabled}`);
+  console.log(`[Tan] Proxy: ${request.proxy?.useXray ? 'Xray-core' : request.proxy?.server || 'direct'}`);
 
   const status = await captureController.activate(targetView.webContents, request);
   streamEngine.setEndpoint(request.url);

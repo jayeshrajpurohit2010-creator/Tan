@@ -128,7 +128,7 @@ async function downloadXrayBinary(): Promise<string> {
   const osName = platformMap[platform] || 'linux';
   const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
   const fileName = `Xray-${osName}-${arch}${ext}`;
-  const downloadUrl = `https://github.com/XTLS/Xray-core/releases/latest/download/${fileName}`;
+  const downloadUrl = `https://github.com/XTLS/Xray-core/releases/download/v25.3.6/${fileName}`;
 
   if (!existsSync(xrayDir)) {
     mkdirSync(xrayDir, { recursive: true });
@@ -143,7 +143,7 @@ async function downloadXrayBinary(): Promise<string> {
   try {
     if (platform === 'win32') {
       execSync(`curl -L -o "${zipPath}" "${downloadUrl}"`, { timeout: 60000 });
-      execSync(`tar -xf "${zipPath}" -C "${xrayDir}"`, { timeout: 30000 });
+      execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${xrayDir}' -Force"`, { timeout: 30000 });
     } else {
       execSync(`curl -L -o "${zipPath}" "${downloadUrl}"`, { timeout: 60000 });
       execSync(`unzip -o "${zipPath}" -d "${xrayDir}"`, { timeout: 30000 });

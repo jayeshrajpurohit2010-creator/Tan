@@ -280,7 +280,7 @@ const SNAPCHAT_STEALTH = {
   `,
   audioContext: `
     try {
-      const OrigAudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const OrigAudioContext = window.AudioContext || window.webkitAudioContext;
       if (OrigAudioContext) {
         const origCreateOscillator = OrigAudioContext.prototype.createOscillator;
         OrigAudioContext.prototype.createOscillator = function() {
@@ -384,7 +384,7 @@ const SNAPCHAT_STEALTH = {
   `,
   speechRecognition: `
     try {
-      const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognition) {
         const origStart = SpeechRecognition.prototype.start;
         SpeechRecognition.prototype.start = function() {
@@ -399,10 +399,10 @@ const SNAPCHAT_STEALTH = {
       if (origRTCPeerConnection) {
         window.RTCPeerConnection = function(config) {
           if (config && config.iceServers) {
-            config.iceServers = config.iceServers.filter(s => !s.urls?.includes('stun:'));
+            config.iceServers = config.iceServers.filter(s => !s.urls || !s.urls.includes('stun:'));
           }
           return new origRTCPeerConnection(config);
-        } as any;
+        };
         window.RTCPeerConnection.prototype = origRTCPeerConnection.prototype;
       }
     } catch (_) {}
