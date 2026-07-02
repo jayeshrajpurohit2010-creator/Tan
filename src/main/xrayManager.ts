@@ -130,6 +130,7 @@ async function downloadXrayBinary(): Promise<string> {
   ensureDirs();
   const fileName = getXrayFileName();
   const downloadUrl = `https://github.com/XTLS/Xray-core/releases/download/v26.3.27/${fileName}`;
+  const platform = process.platform;
 
   if (!existsSync(xrayDir)) {
     mkdirSync(xrayDir, { recursive: true });
