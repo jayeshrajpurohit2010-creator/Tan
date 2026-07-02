@@ -414,6 +414,14 @@ app.commandLine.appendSwitch('disable-extensions');
 app.commandLine.appendSwitch('disable-sync');
 app.commandLine.appendSwitch('disable-breakpad');
 app.commandLine.appendSwitch('metrics-client-id', '');
+app.commandLine.appendSwitch('enable-automation', 'false');
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+app.commandLine.appendSwitch('enable-features', 'NetworkService');
+app.commandLine.appendSwitch('ignore-certificate-errors');
+app.commandLine.appendSwitch('disable-features', 'TranslateUI,BackForwardCache,MediaRouter');
+app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 app.whenReady().then(() => {
   createWindow();

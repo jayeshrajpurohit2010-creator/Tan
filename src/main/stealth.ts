@@ -365,6 +365,70 @@ const SNAPCHAT_STEALTH = {
       Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
     } catch (_) {}
   `,
+  speechSynthesis: `
+    try {
+      if (window.speechSynthesis) {
+        const origGetVoices = window.speechSynthesis.getVoices;
+        window.speechSynthesis.getVoices = function() {
+          const voices = origGetVoices.call(this);
+          if (voices.length === 0) {
+            return [
+              { name: 'Samantha', lang: 'en-US', localService: true, default: true, voiceURI: 'Samantha' },
+              { name: 'Alex', lang: 'en-US', localService: true, default: false, voiceURI: 'Alex' },
+            ];
+          }
+          return voices;
+        };
+      }
+    } catch (_) {}
+  `,
+  speechRecognition: `
+    try {
+      const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const origStart = SpeechRecognition.prototype.start;
+        SpeechRecognition.prototype.start = function() {
+          try { origStart.call(this); } catch (_) {}
+        };
+      }
+    } catch (_) {}
+  `,
+  webrtc: `
+    try {
+      const origRTCPeerConnection = window.RTCPeerConnection;
+      if (origRTCPeerConnection) {
+        window.RTCPeerConnection = function(config) {
+          if (config && config.iceServers) {
+            config.iceServers = config.iceServers.filter(s => !s.urls?.includes('stun:'));
+          }
+          return new origRTCPeerConnection(config);
+        } as any;
+        window.RTCPeerConnection.prototype = origRTCPeerConnection.prototype;
+      }
+    } catch (_) {}
+  `,
+  geolocation: `
+    try {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition = function(success, error) {
+          if (error) {
+            error({ code: 2, message: 'Position unavailable', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 });
+          }
+        };
+        navigator.geolocation.watchPosition = function(success, error) {
+          if (error) {
+            error({ code: 2, message: 'Position unavailable', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 });
+          }
+          return 0;
+        };
+      }
+    } catch (_) {}
+  `,
+  notification: `
+    try {
+      Object.defineProperty(Notification, 'permission', { get: () => 'denied', configurable: true });
+    } catch (_) {}
+  `,
 };
 
 function buildCombinedScript(): string {
@@ -394,6 +458,11 @@ function buildCombinedScript(): string {
     SNAPCHAT_STEALTH.audioContext,
     SNAPCHAT_STEALTH.fonts,
     SNAPCHAT_STEALTH.cdpCountermeasures,
+    SNAPCHAT_STEALTH.speechSynthesis,
+    SNAPCHAT_STEALTH.speechRecognition,
+    SNAPCHAT_STEALTH.webrtc,
+    SNAPCHAT_STEALTH.geolocation,
+    SNAPCHAT_STEALTH.notification,
   ].join('\n');
 }
 
