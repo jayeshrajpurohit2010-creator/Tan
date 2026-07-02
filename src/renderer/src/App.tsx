@@ -68,6 +68,7 @@ function App(): JSX.Element {
   const [proxyPassword, setProxyPassword] = useState('');
   const [showProxyPanel, setShowProxyPanel] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [currentIp, setCurrentIp] = useState<string | undefined>();
 
   const isBusy = status.mode === 'arming' || status.mode === 'flushing';
   const syncEngineLive = status.active && status.cdpAttached && status.mode === 'active';
@@ -285,14 +286,14 @@ function App(): JSX.Element {
               <div className="absolute inset-x-16 top-2 z-20 h-5 rounded-b-2xl bg-black/90 shadow-neonCyan" />
               <div
                 ref={viewportRef}
-                className="absolute inset-[18px] overflow-hidden rounded-[20px] border border-cyan-300/35 bg-black/85"
+                className="absolute inset-[18px] overflow-hidden rounded-[20px] border border-cyan-300/35 bg-transparent pointer-events-none"
               >
-                <div className="flex h-full items-center justify-center px-8 text-center text-xs uppercase tracking-[0.26em] text-fuchsia-200/50">
+                <div className="flex h-full items-center justify-center px-8 text-center text-xs uppercase tracking-[0.26em] text-fuchsia-200/50 pointer-events-none">
                   {syncEngineLive
                     ? 'Forensic Capture Viewport Online'
                     : status.active
                       ? 'Establishing CDP Attachment'
-                      : 'Navigate to web.snapchat.com and log in'}
+                      : ''}
                 </div>
               </div>
             </div>
