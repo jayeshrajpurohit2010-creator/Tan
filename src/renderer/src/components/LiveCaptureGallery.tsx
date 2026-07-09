@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, memo } from 'react';
 import type { SyncEvent, ReconstitutionEvent, ReconstitutionProgressEvent } from '../../../shared/ipc';
 
 interface GalleryItem {
@@ -32,6 +32,13 @@ function mimeLabel(mimeType: string): string {
   return 'BIN';
 }
 
+function mimeColor(mimeType: string): string {
+  if (mimeType.startsWith('image/')) return 'border-cyan-400/40 bg-cyan-950/20';
+  if (mimeType.startsWith('video/')) return 'border-fuchsia-400/30 bg-fuchsia-950/15';
+  if (mimeType.includes('mpegurl') || mimeType.includes('m3u8')) return 'border-amber-400/30 bg-amber-950/15';
+  return 'border-fuchsia-400/20 bg-fuchsia-950/10';
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ['KB', 'MB', 'GB'];
@@ -55,6 +62,68 @@ function ProgressBar({ percent }: { percent: number }): JSX.Element {
   );
 }
 
+// Memoized gallery item to prevent unnecessary re-renders
+const GalleryItemRow = memo(function GalleryItemRow({
+  item,
+  onOpenFile,
+}: {
+  item: GalleryItem;
+  onOpenFile: (path: string) => void;
+}): JSX.Element {
+  const handleClick = useCallback(() => {
+    if (item.savedPath) onOpenFile(item.savedPath);
+  }, [item.savedPath, onOpenFile]);
+
+  return (
+    <div
+      className={`group relative cursor-pointer border p-3 transition ${
+        item.isReconstituted
+          ? 'border-cyan-400/40 bg-cyan-950/20 hover:bg-cyan-950/40'
+          : item.error
+            ? 'border-red-400/30 bg-red-950/20 hover:bg-red-950/30'
+            : mimeColor(item.mimeType)
+      }`}
+      onClick={handleClick}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex-shrink-0 border border-cyan-300/25 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-cyan-200/80">
+            {mimeLabel(item.mimeType)}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate font-mono text-xs text-cyan-100/90">
+              {item.isReconstituted ? (
+                <span className="text-cyan-300">▶ {item.streamId}</span>
+              ) : (
+                item.url.length > 40 ? `${item.url.slice(0, 37)}...` : item.url
+              )}
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-cyan-100/40">
+              <span>{item.mimeType.split(';')[0]}</span>
+              <span>•</span>
+              <span>{formatBytes(item.bytes)}</span>
+              {item.isReconstituted && item.segments ? (
+                <>
+                  <span>•</span>
+                  <span className="text-cyan-300/60">{item.segments} segs</span>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        {item.isReconstituted ? (
+          <span className="flex-shrink-0 border border-cyan-400/40 bg-cyan-950/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-cyan-300">
+            MP4
+          </span>
+        ) : null}
+      </div>
+      {item.error ? (
+        <div className="mt-1.5 truncate font-mono text-[10px] text-red-200/70">{item.error}</div>
+      ) : null}
+    </div>
+  );
+});
+
 function LiveCaptureGallery({
   events,
   reconstitutionEvents,
@@ -68,55 +137,49 @@ function LiveCaptureGallery({
     [reconstitutionEvents],
   );
 
-  // Build a map of streamId -> latest percent for in-progress streams
   const progressMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const p of reconstitutionProgress) {
       map.set(p.streamId, p.percent);
     }
-    // Remove completed streams
     for (const e of reconstitutionEvents) {
       map.delete(e.streamId);
     }
     return map;
   }, [reconstitutionProgress, reconstitutionEvents]);
 
-  const galleryItems: GalleryItem[] = [
-    ...events.map((event) => ({
-      id: event.id,
-      url: event.url,
-      mimeType: event.mimeType,
-      bytes: event.bytes,
-      savedPath: event.savedPath,
-      timestamp: event.timestamp,
-      error: event.error,
-    })),
-    ...reconstitutionEvents.map((event) => ({
-      id: `recon_${event.streamId}_${event.timestamp}`,
-      url: event.outputPath,
-      mimeType: 'video/mp4',
-      bytes: event.totalBytes,
-      savedPath: event.outputPath,
-      timestamp: event.timestamp,
-      isReconstituted: true,
-      streamId: event.streamId,
-      segments: event.segments,
-      error: event.error,
-    })),
-  ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  const filtered = useMemo(() => {
+    const items: GalleryItem[] = [
+      ...events.map((event) => ({
+        id: event.id,
+        url: event.url,
+        mimeType: event.mimeType,
+        bytes: event.bytes,
+        savedPath: event.savedPath,
+        timestamp: event.timestamp,
+        error: event.error,
+      })),
+      ...reconstitutionEvents.map((event) => ({
+        id: `recon_${event.streamId}_${event.timestamp}`,
+        url: event.outputPath,
+        mimeType: 'video/mp4',
+        bytes: event.totalBytes,
+        savedPath: event.outputPath,
+        timestamp: event.timestamp,
+        isReconstituted: true,
+        streamId: event.streamId,
+        segments: event.segments,
+        error: event.error,
+      })),
+    ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  const filtered = filter === 'all' ? galleryItems : galleryItems.filter((item) => {
-    if (filter === 'image') return item.mimeType.startsWith('image/');
-    if (filter === 'video') return item.mimeType.startsWith('video/') || item.isReconstituted;
-    if (filter === 'document') return item.mimeType.startsWith('text/') || item.mimeType.includes('json');
-    if (filter === 'reconstituted') return item.isReconstituted;
-    return true;
-  });
-
-  const truncateUrl = useCallback((value: string, maxLen = 40): string => {
-    if (value.length <= maxLen) return value;
-    return `${value.slice(0, maxLen - 3)}...`;
-  }, []);
+    if (filter === 'all') return items;
+    if (filter === 'image') return items.filter((item) => item.mimeType.startsWith('image/'));
+    if (filter === 'video') return items.filter((item) => item.mimeType.startsWith('video/') || item.isReconstituted);
+    if (filter === 'document') return items.filter((item) => item.mimeType.startsWith('text/') || item.mimeType.includes('json'));
+    if (filter === 'reconstituted') return items.filter((item) => item.isReconstituted);
+    return items;
+  }, [events, reconstitutionEvents, filter]);
 
   const inProgressEntries = Array.from(progressMap.entries());
 
@@ -195,7 +258,7 @@ function LiveCaptureGallery({
         </div>
       </div>
 
-      {/* Gallery items list */}
+      {/* Gallery items list — limited to 60 for performance */}
       <div className="scrollbar-thin flex-1 space-y-2 overflow-y-auto pr-1">
         {filtered.length === 0 ? (
           <div className="flex h-full items-center justify-center font-mono text-[11px] uppercase tracking-[0.2em] text-cyan-100/30">
@@ -203,55 +266,7 @@ function LiveCaptureGallery({
           </div>
         ) : (
           filtered.slice(0, 60).map((item) => (
-            <div
-              key={item.id}
-              className={`group relative cursor-pointer border p-3 transition ${
-                item.isReconstituted
-                  ? 'border-cyan-400/40 bg-cyan-950/20 hover:bg-cyan-950/40'
-                  : item.error
-                    ? 'border-red-400/30 bg-red-950/20 hover:bg-red-950/30'
-                    : 'border-fuchsia-400/20 bg-fuchsia-950/10 hover:bg-fuchsia-950/20'
-              }`}
-              onClick={() => {
-                if (item.savedPath) onOpenFile(item.savedPath);
-              }}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="flex-shrink-0 border border-cyan-300/25 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-cyan-200/80">
-                    {mimeLabel(item.mimeType)}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="truncate font-mono text-xs text-cyan-100/90">
-                      {item.isReconstituted ? (
-                        <span className="text-cyan-300">▶ {item.streamId}</span>
-                      ) : (
-                        truncateUrl(item.url)
-                      )}
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-cyan-100/40">
-                      <span>{item.mimeType.split(';')[0]}</span>
-                      <span>•</span>
-                      <span>{formatBytes(item.bytes)}</span>
-                      {item.isReconstituted && item.segments ? (
-                        <>
-                          <span>•</span>
-                          <span className="text-cyan-300/60">{item.segments} segs</span>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-                {item.isReconstituted ? (
-                  <span className="flex-shrink-0 border border-cyan-400/40 bg-cyan-950/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-cyan-300">
-                    MP4
-                  </span>
-                ) : null}
-              </div>
-              {item.error ? (
-                <div className="mt-1.5 truncate font-mono text-[10px] text-red-200/70">{item.error}</div>
-              ) : null}
-            </div>
+            <GalleryItemRow key={item.id} item={item} onOpenFile={onOpenFile} />
           ))
         )}
       </div>
