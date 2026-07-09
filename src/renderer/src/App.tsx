@@ -298,6 +298,16 @@ function App(): JSX.Element {
                 </span>
               </div>
             </div>
+
+            {/* Clear instruction banner */}
+            <div className="mb-2 border border-cyan-300/30 bg-cyan-950/20 px-4 py-2 text-center text-[11px] text-cyan-100/80">
+              {sessionStatus === 'active' 
+                ? '✓ Logged in — Click "ACTIVATE MODE" to start capturing'
+                : sessionStatus === 'expired'
+                  ? '⚠ Session expired — Log in again in the viewport below'
+                  : '1. Log in to Snapchat in the viewport below  →  2. Click "ACTIVATE MODE"'}
+            </div>
+
             <div ref={viewportRef} className="aspect-[9/19.5] w-full max-w-[430px] rounded-[28px] border border-cyan-300/20 bg-black/50" />
           </div>
 
@@ -363,6 +373,16 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
           <p className="mt-3 text-[10px] uppercase tracking-[0.34em] text-cyan-200/60">
             Compliance &amp; Digital Forensics
           </p>
+        </div>
+
+        {/* Quick start guide */}
+        <div className="mb-4 border border-cyan-300/20 bg-cyan-950/15 p-3">
+          <div className="text-[10px] uppercase tracking-[0.24em] text-cyan-200/70 mb-2">Quick Start</div>
+          <div className="space-y-1 text-[11px] text-cyan-100/60">
+            <p>1. Log in to Snapchat in the viewport</p>
+            <p>2. Click "ACTIVATE MODE" below</p>
+            <p>3. View stories — they're captured automatically</p>
+          </div>
         </div>
 
         {/* Target endpoint */}
@@ -511,7 +531,7 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
           </div>
         ) : null}
 
-        {/* ── ACTIVATE MODE BUTTON ── */}
+        {/* ── START CAPTURE BUTTON ── */}
         <button
           onClick={() => void props.onToggle()}
           disabled={props.isBusy || (props.encryptionEnabled && !props.passphrase && !isActive)}
@@ -529,11 +549,11 @@ function ControlPanel(props: ControlPanelProps): JSX.Element {
         >
           {props.isBusy
             ? props.status.mode === 'arming'
-              ? '⟳ ACTIVATING...'
-              : '⟳ DEACTIVATING...'
+              ? '⟳ Starting Capture...'
+              : '⟳ Stopping...'
             : isActive
-              ? '◼ DEACTIVATE MODE'
-              : '▶ ACTIVATE MODE'}
+              ? '◼ STOP CAPTURE'
+              : '▶ START CAPTURE'}
         </button>
 
         <button
