@@ -53,6 +53,11 @@ const api: TanApi = {
     ipcRenderer.on('tan:session-expired', listener);
     return () => ipcRenderer.off('tan:session-expired', listener);
   },
+  onLivePreview(callback: (event: any) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on('tan:live-preview', listener);
+    return () => ipcRenderer.off('tan:live-preview', listener);
+  },
   checkIp() {
     return ipcRenderer.invoke('tan:check-ip');
   },

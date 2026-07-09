@@ -108,6 +108,13 @@ export type GalleryEntry = {
   thumbnailPath?: string;
 };
 
+export type LivePreviewEvent = {
+  id: string;
+  thumbnailPath: string;
+  mimeType: string;
+  timestamp: string;
+};
+
 export type AppConfig = {
   primaryAuditEndpoint: string;
 };
@@ -123,6 +130,7 @@ export type TanApi = {
   onReconstitutionEvent(callback: (event: ReconstitutionEvent) => void): () => void;
   onReconstitutionProgress(callback: (event: ReconstitutionProgressEvent) => void): () => void;
   onSessionExpired(callback: () => void): () => void;
+  onLivePreview(callback: (event: LivePreviewEvent) => void): () => void;
   openFile(path: string): Promise<void>;
   checkIp(): Promise<string>;
 };

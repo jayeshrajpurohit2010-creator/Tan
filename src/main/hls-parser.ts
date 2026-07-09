@@ -181,14 +181,22 @@ function parseMediaPlaylist(lines: string[], baseUrl: string): HLSMediaPlaylist 
     } else if (line.startsWith('#EXTINF:')) {
       const duration = parseFloat(line.split(':')[1].split(',')[0]);
       currentSegment.duration = duration;
-      currentSegment.discontinuity = false;
     } else if (line.startsWith('#EXT-X-KEY:')) {
       const keyInfo = parseEncryptionKey(line);
-      currentEncryptionState = {
-        isEncrypted: true,
-        encryptionKeyUrl: resolveUrl(keyInfo.url, baseUrl),
-        encryptionIV: keyInfo.iv,
-      };
+      const method = line.match(/METHOD=([^,]+)/)?.[1] ?? 'NONE';
+      if (method === 'NONE') {
+        currentEncryptionState = {
+          isEncrypted: false,
+          encryptionKeyUrl: undefined,
+          encryptionIV: undefined,
+        };
+      } else {
+        currentEncryptionState = {
+          isEncrypted: true,
+          encryptionKeyUrl: resolveUrl(keyInfo.url, baseUrl),
+          encryptionIV: keyInfo.iv,
+        };
+      }
     } else if (line.startsWith('#EXT-X-DISCONTINUITY')) {
       currentSegment.discontinuity = true;
     } else if (line.startsWith('#EXT-X-MAP:')) {

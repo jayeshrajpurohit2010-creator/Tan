@@ -356,4 +356,175 @@ describe('HLS manifest parser', () => {
       expect(getEncryptionKeyUrls(playlist)).toEqual([]);
     });
   });
+
+  describe('edge cases and error conditions', () => {
+    it('handles discontinuity tag BEFORE extinf for the same segment', () => {
+      // Per HLS spec, #EXT-X-DISCONTINUITY should appear before #EXTINF.
+      // Parser must preserve discontinuity even when the tag precedes EXTINF.
+      const manifest = [
+        '#EXTM3U',
+        '#EXT-X-TARGETDURATION:10',
+        '#EXT-X-DISCONTINUITY',
+        '#EXTINF:5.0,',
+        'a.ts',
+        '#EXTINF:5.0,',
+        'b.ts',
+        '#EXT-X-ENDLIST',
+      ].join('\n');
+
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMediaPlaylist;
+      expect(result.segments[0].discontinuity).toBe(true);
+      expect(result.segments[1].discontinuity).toBe(false);
+    });
+
+    it('handles METHOD=NONE to clear encryption state', () => {
+      // #EXT-X-KEY:METHOD=NONE should disable encryption for subsequent segments.
+      const manifest = [
+        '#EXTM3U',
+        '#EXT-X-TARGETDURATION:10',
+        '#EXT-X-KEY:METHOD=AES-128,URI="https://keys.example.com/key1.bin",IV=0x00000000000000000000000000000001',
+        '#EXTINF:5.0,',
+        'enc.ts',
+        '#EXT-X-KEY:METHOD=NONE',
+        '#EXTINF:5.0,',
+        'plain.ts',
+        '#EXT-X-ENDLIST',
+      ].join('\n');
+
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMediaPlaylist;
+      expect(result.segments[0].isEncrypted).toBe(true);
+      expect(result.segments[1].isEncrypted).toBe(false);
+    });
+
+    it('handles multiple key changes across segments', () => {
+      const manifest = [
+        '#EXTM3U',
+        '#EXT-X-TARGETDURATION:10',
+        '#EXT-X-KEY:METHOD=AES-128,URI="https://keys.example.com/key1.bin",IV=0x00000000000000000000000000000001',
+        '#EXTINF:5.0,',
+        'a.ts',
+        '#EXT-X-KEY:METHOD=AES-128,URI="https://keys.example.com/key2.bin",IV=0x00000000000000000000000000000002',
+        '#EXTINF:5.0,',
+        'b.ts',
+        '#EXTINF:5.0,',
+        'c.ts',
+        '#EXT-X-ENDLIST',
+      ].join('\n');
+
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMediaPlaylist;
+      expect(result.segments[0].encryptionKeyUrl).toBe('https://keys.example.com/key1.bin');
+      expect(result.segments[1].encryptionKeyUrl).toBe('https://keys.example.com/key2.bin');
+      expect(result.segments[2].encryptionKeyUrl).toBe('https://keys.example.com/key2.bin');
+    });
+
+    it('skips master playlist variants with no following URL', () => {
+      const manifest = [
+        '#EXTM3U',
+        '#EXT-X-STREAM-INF:BANDWIDTH=1000000',
+        '#EXT-X-STREAM-INF:BANDWIDTH=2000000',
+        'mid.m3u8',
+      ].join('\n');
+
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMasterPlaylist;
+      expect(result.variants).toHaveLength(1);
+      expect(result.variants[0].bandwidth).toBe(2000000);
+    });
+
+    it('parses segments with fractional EXTINF precision', () => {
+      const manifest = [
+        '#EXTM3U',
+        '#EXT-X-TARGETDURATION:10',
+        '#EXTINF:6.006006006006006,',
+        'seg0.ts',
+        '#EXTINF:9.009009009009009,',
+        'seg1.ts',
+        '#EXT-X-ENDLIST',
+      ].join('\n');
+
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMediaPlaylist;
+      expect(result.segments[0].duration).toBeCloseTo(6.006, 3);
+      expect(result.segments[1].duration).toBeCloseTo(9.009, 3);
+    });
+
+    it('handles EXT-X-KEY with only METHOD=NONE and no URI', () => {
+      const manifest = [
+        '#EXTM3U',
+        '#EXT-X-TARGETDURATION:10',
+        '#EXT-X-KEY:METHOD=NONE',
+        '#EXTINF:5.0,',
+        'plain.ts',
+        '#EXT-X-ENDLIST',
+      ].join('\n');
+
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMediaPlaylist;
+      expect(result.segments[0].isEncrypted).toBe(false);
+    });
+
+    it('resolves key URLs against the base URL', () => {
+      const manifest = [
+        '#EXTM3U',
+        '#EXT-X-TARGETDURATION:10',
+        '#EXT-X-KEY:METHOD=AES-128,URI="keys/key1.bin",IV=0x00000000000000000000000000000001',
+        '#EXTINF:5.0,',
+        'seg.ts',
+        '#EXT-X-ENDLIST',
+      ].join('\n');
+
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMediaPlaylist;
+      expect(result.segments[0].encryptionKeyUrl).toBe('https://cdn.example.com/streams/123/keys/key1.bin');
+    });
+
+    it('preserves sequence numbers across discontinuity gaps', () => {
+      const manifest = [
+        '#EXTM3U',
+        '#EXT-X-TARGETDURATION:10',
+        '#EXTINF:5.0,',
+        'a.ts',
+        '#EXT-X-DISCONTINUITY',
+        '#EXTINF:5.0,',
+        'b.ts',
+        '#EXTINF:5.0,',
+        'c.ts',
+        '#EXT-X-ENDLIST',
+      ].join('\n');
+
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMediaPlaylist;
+      expect(result.segments[0].sequenceNumber).toBe(0);
+      expect(result.segments[1].sequenceNumber).toBe(1);
+      expect(result.segments[2].sequenceNumber).toBe(2);
+    });
+
+    it('treats a manifest with only #EXTM3U as empty media playlist', () => {
+      const manifest = '#EXTM3U';
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMediaPlaylist;
+      expect(result.type).toBe('media');
+      expect(result.segments).toHaveLength(0);
+    });
+
+    it('ignores unknown tags gracefully', () => {
+      const manifest = [
+        '#EXTM3U',
+        '#EXT-X-VERSION:3',
+        '#EXT-X-TARGETDURATION:10',
+        '#EXT-X-CUSTOM-TAG:foo=bar',
+        '#EXTINF:5.0,',
+        'seg.ts',
+        '#EXT-X-ENDLIST',
+      ].join('\n');
+
+      const result = parseHLSManifest(manifest, BASE_URL) as HLSMediaPlaylist;
+      expect(result.segments).toHaveLength(1);
+      expect(result.segments[0].url).toContain('seg.ts');
+    });
+
+    it('getBestVariant returns the single variant when only one exists', () => {
+      const master: HLSMasterPlaylist = {
+        type: 'master',
+        variants: [{ bandwidth: 500000, url: 'low.m3u8' }],
+      };
+      const best = getBestVariant(master, 1000);
+      expect(best).not.toBeNull();
+      expect(best!.bandwidth).toBe(500000);
+    });
+  });
 });

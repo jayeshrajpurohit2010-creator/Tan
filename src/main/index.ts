@@ -167,7 +167,7 @@ function createWindow(): void {
     height: 1000,
     minWidth: 1280,
     minHeight: 800,
-    title: 'Tan — Forensic Archival Suite',
+    title: 'Tan â€” Forensic Archival Suite',
     backgroundColor: '#020106',
   });
 
@@ -259,19 +259,15 @@ function resizeDashboard(): void {
   }
 
   const [width, height] = mainWindow.getContentSize();
-  const headerHeight = 52;
   const leftPanelWidth = 340;
-  const rightPanelWidth = 360;
-  const centerGap = width - leftPanelWidth - rightPanelWidth;
 
-  if (centerGap > 0) {
-    // Two non-overlapping regions: left sidebar and right panel
-    // Center viewport area is left completely empty for targetView
-    dashboardView.setBounds({ x: 0, y: 0, width: leftPanelWidth, height });
-  } else {
-    // Narrow window: full width, targetView overlays on top
-    dashboardView.setBounds({ x: 0, y: 0, width, height });
-  }
+  // Always constrain dashboardView to the left panel only.
+  // The center viewport area is left empty so targetView receives all
+  // mouse events without interference. targetView is added after
+  // dashboardView in the view stack, but by keeping the bounds
+  // non-overlapping we avoid any ambiguity in hit-testing.
+  dashboardView.setBounds({ x: 0, y: 0, width: leftPanelWidth, height });
+
   applyViewportBounds(latestViewportBounds);
 }
 
@@ -422,6 +418,10 @@ ipcMain.handle('tan:check-ip', async () => {
     throw new Error(`IP check failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 });
+
+function sendLivePreview(preview: { id: string; thumbnailPath: string; mimeType: string; timestamp: string }): void {
+  dashboardView?.webContents.send('tan:live-preview', preview);
+}
 
 ipcMain.handle('tan:toggle-reconstitution', async (_event, enabled: boolean) => {
   reconstitutionEnabled = enabled;

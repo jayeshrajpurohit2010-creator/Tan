@@ -33,6 +33,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   'ERR_CONNECTION_FAILED': 'Connection failed. Please verify the URL and network.',
   'ERR_SOCKET_NOT_CONNECTED': 'Socket is not connected. Try again in a few seconds.',
   'ERR_FAILED': 'Network request failed. Check your connection and try again.',
+  'ERR_PROXY_CONNECTION_FAILED': 'Proxy connection failed. Check your proxy settings.',
+  'ERR_TUNNEL_CONNECTION_FAILED': 'Proxy tunnel failed. The proxy may not support HTTPS.',
+  'ERR_PROXY_AUTH_REQUIRED': 'Proxy requires authentication. Enter your credentials.',
+  'ERR_HTTP2_PROTOCOL_ERROR': 'HTTP/2 protocol error. The server may have rejected the connection.',
   'Invalid URL': 'The URL you entered is not valid. Make sure it starts with http:// or https://.',
   'The page has been disconnected': 'The viewport lost connection. Try reloading by toggling deactivate/activate.',
   'Snapchat session expired': 'Your Snapchat session has expired. Log in again at web.snapchat.com in the viewport.',
@@ -140,7 +144,15 @@ function App(): JSX.Element {
       });
     });
     const removeSessionExpired = window.tan.onSessionExpired(() => {
+      setSessionStatus('expired');
       setError('Session expired. Navigate to web.snapchat.com and log in again.');
+    });
+    const removeLivePreview = window.tan.onLivePreview((event) => {
+      setEvents((current) => {
+        const exists = current.some((e) => e.id === event.id);
+        if (exists) return current;
+        return [{ id: event.id, url: event.thumbnailPath, mimeType: event.mimeType, bytes: 0, savedPath: event.thumbnailPath, encrypted: false, timestamp: event.timestamp, queueDepth: 0 }, ...current].slice(0, 120);
+      });
     });
 
     return () => {
@@ -149,6 +161,7 @@ function App(): JSX.Element {
       removeRecon();
       removeProgress();
       removeSessionExpired();
+      removeLivePreview();
     };
   }, []);
 
@@ -266,15 +279,26 @@ function App(): JSX.Element {
           <div className="w-full max-w-[520px]">
             <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.32em] text-cyan-200/80">
               <span>Snapchat Capture Viewport</span>
-              <span className={syncEngineLive ? 'text-green-300' : status.active ? 'text-amber-200' : 'text-cyan-200/50'}>
-                {syncEngineLive
-                  ? '● Active'
-                  : status.active
-                    ? '◐ Arming'
-                    : '○ Standby'}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className={`flex items-center gap-1.5 ${
+                  sessionStatus === 'active' ? 'text-green-300' : 
+                  sessionStatus === 'expired' ? 'text-red-300' : 
+                  'text-cyan-200/50'
+                }`}>
+                  {sessionStatus === 'active' ? '● SESSION ACTIVE' : 
+                   sessionStatus === 'expired' ? '✗ SESSION EXPIRED' : 
+                   '○ NO SESSION'}
+                </span>
+                <span className={syncEngineLive ? 'text-green-300' : status.active ? 'text-amber-200' : 'text-cyan-200/50'}>
+                  {syncEngineLive
+                    ? '● CAPTURING'
+                    : status.active
+                      ? '◐ ARMING'
+                      : '○ STANDBY'}
+                </span>
+              </div>
             </div>
-            <div className="aspect-[9/19.5] w-full max-w-[430px] rounded-[28px] border border-cyan-300/20 bg-black/50" />
+            <div ref={viewportRef} className="aspect-[9/19.5] w-full max-w-[430px] rounded-[28px] border border-cyan-300/20 bg-black/50" />
           </div>
 
           <div className="w-full max-w-[520px] border border-fuchsia-400/15 bg-fuchsia-950/5 p-3">
@@ -291,6 +315,7 @@ function App(): JSX.Element {
           status={status}
           events={events}
           reconstitutionEvents={reconstitutionEvents}
+          reconstitutionProgress={reconstitutionProgress}
           latestBytes={latestBytes}
         />
       </section>
@@ -566,15 +591,19 @@ function TelemetryPanel({
   status,
   events,
   reconstitutionEvents,
+  reconstitutionProgress,
   latestBytes,
 }: {
   status: EngineStatus;
   events: SyncEvent[];
   reconstitutionEvents: ReconstitutionEvent[];
+  reconstitutionProgress: ReconstitutionProgressEvent[];
   latestBytes: number;
 }): JSX.Element {
   const reconstitutedCount = reconstitutionEvents.filter((e) => !e.error).length;
   const reconstitutedBytes = reconstitutionEvents.reduce((t, e) => t + e.totalBytes, 0);
+  const inProgressCount = reconstitutionProgress.length;
+  const latestProgress = reconstitutionProgress.length > 0 ? reconstitutionProgress[0] : null;
 
   return (
     <aside className="flex min-w-0 flex-col border-l border-cyan-300/20 pl-5">
@@ -586,6 +615,20 @@ function TelemetryPanel({
         <Metric label="Recon OK"    value={reconstitutedCount.toString()} />
         <Metric label="Recon Bytes" value={formatBytes(reconstitutedBytes)} />
       </div>
+
+      {/* Archive Finalization Status */}
+      {inProgressCount > 0 ? (
+        <div className="mt-3 border border-amber-400/30 bg-amber-950/20 p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-[0.24em] text-amber-200 blink">⚙ FINALIZING STREAM...</span>
+            <span className="font-mono text-[11px] text-amber-300">{latestProgress?.percent ?? 0}%</span>
+          </div>
+          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-black/50">
+            <div className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-300" style={{ width: `${latestProgress?.percent ?? 0}%` }} />
+          </div>
+          <div className="mt-1 truncate font-mono text-[9px] text-amber-100/50">{latestProgress?.streamId}</div>
+        </div>
+      ) : null}
 
       <div className="mt-5 flex-1 overflow-hidden border border-fuchsia-400/25 bg-black/60">
         <div className="border-b border-fuchsia-400/25 px-4 py-3 text-[11px] uppercase tracking-[0.28em] text-fuchsia-100/80">
