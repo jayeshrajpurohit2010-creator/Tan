@@ -447,9 +447,10 @@ ipcMain.on('tan:viewport-bounds', (_event, bounds: ViewportBounds) => {
   applyViewportBounds(sanitized);
 });
 
-app.commandLine.appendSwitch('disable-features', 'IsolateOrigins,site-per-process,TranslateUI');
-app.commandLine.appendSwitch('disable-site-isolation-trials');
-app.commandLine.appendSwitch('disable-web-security');
+// CRITICAL: Removed --ignore-certificate-errors (was disabling ALL TLS verification)
+// CRITICAL: Removed --disable-web-security (was disabling Same-Origin Policy)
+// CRITICAL: Removed --disable-features=IsolateOrigins,site-per-process (was disabling site isolation)
+// Safe anti-detection flags only:
 app.commandLine.appendSwitch('enable-features', 'NetworkService,NetworkServiceInProcess');
 app.commandLine.appendSwitch('disable-background-networking');
 app.commandLine.appendSwitch('disable-default-apps');
@@ -459,10 +460,7 @@ app.commandLine.appendSwitch('disable-breakpad');
 app.commandLine.appendSwitch('metrics-client-id', '');
 app.commandLine.appendSwitch('enable-automation', 'false');
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
-app.commandLine.appendSwitch('enable-features', 'NetworkService');
-app.commandLine.appendSwitch('ignore-certificate-errors');
 app.commandLine.appendSwitch('disable-features', 'TranslateUI,BackForwardCache,MediaRouter');
-app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 

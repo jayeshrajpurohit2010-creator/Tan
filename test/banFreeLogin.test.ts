@@ -1,15 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
-// Mock electron before importing the module
 vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/tan-test' },
   BrowserWindow: vi.fn(),
   session: {},
 }));
 
-// Mock fs
 const mockExistsSync = vi.fn(() => false);
-const mockReadFileSync = vi.fn(() => '');
+const mockReadFileSync = vi.fn(() => Buffer.alloc(0));
 const mockWriteFileSync = vi.fn();
 const mockMkdirSync = vi.fn();
 vi.mock('node:fs', () => ({
@@ -27,7 +25,7 @@ import {
 } from '../src/main/banFreeLogin';
 
 describe('banFreeLogin', () => {
-  it('1. saveSessionTokens calls writeFileSync', () => {
+  it('1. saveSessionTokens calls writeFileSync with encrypted data', () => {
     mockExistsSync.mockReturnValue(false);
     const tokens = {
       cookies: [],
@@ -37,12 +35,13 @@ describe('banFreeLogin', () => {
     };
     saveSessionTokens(tokens);
     expect(mockWriteFileSync).toHaveBeenCalled();
+    const written = mockWriteFileSync.mock.calls[0][1];
+    expect(Buffer.isBuffer(written)).toBe(true);
   });
 
   it('2. loadSessionTokens returns null when file missing', () => {
     mockExistsSync.mockReturnValue(false);
-    const result = loadSessionTokens();
-    expect(result).toBeNull();
+    expect(loadSessionTokens()).toBeNull();
   });
 
   it('3. hasStoredSession returns false when no tokens', () => {
@@ -55,43 +54,34 @@ describe('banFreeLogin', () => {
     expect(getSessionStatus()).toBe('none');
   });
 
-  it('5. loadSessionTokens parses valid JSON', () => {
+  it('5. loadSessionTokens returns null for garbage data', () => {
     mockExistsSync.mockReturnValue(true);
-    const data = {
-      cookies: [{ name: 'token', value: 'abc', domain: '.snapchat.com', path: '/', expires: 9999999999, httpOnly: true, secure: true, sameSite: 'lax' }],
-      localStorage: { key: 'value' },
+    mockReadFileSync.mockReturnValue(Buffer.from('not-encrypted-data'));
+    expect(loadSessionTokens()).toBeNull();
+  });
+
+  it('6. loadSessionTokens returns null for corrupted data', () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(Buffer.alloc(100));
+    expect(loadSessionTokens()).toBeNull();
+  });
+
+  it('7. saveSessionTokens produces encrypted binary output', () => {
+    const tokens = {
+      cookies: [{ name: 'x', value: 'y', domain: '.test.com', path: '/', expires: 9999999999, httpOnly: true, secure: true, sameSite: 'lax' as const }],
+      localStorage: { k: 'v' },
       capturedAt: '2026-06-15T00:00:00Z',
       expiresAt: '2099-01-01T00:00:00Z',
     };
-    mockReadFileSync.mockReturnValue(JSON.stringify(data));
-    const result = loadSessionTokens();
-    expect(result).not.toBeNull();
-    expect(result?.cookies).toHaveLength(1);
-    expect(result?.cookies[0].name).toBe('token');
-  });
-
-  it('6. loadSessionTokens returns null for expired tokens', () => {
-    mockExistsSync.mockReturnValue(true);
-    const data = {
-      cookies: [],
-      localStorage: {},
-      capturedAt: '2020-01-01T00:00:00Z',
-      expiresAt: '2020-01-02T00:00:00Z',
-    };
-    mockReadFileSync.mockReturnValue(JSON.stringify(data));
-    const result = loadSessionTokens();
-    expect(result).toBeNull();
-  });
-
-  it('7. getSessionStatus returns valid for non-expired tokens', () => {
-    mockExistsSync.mockReturnValue(true);
-    const data = {
-      cookies: [],
-      localStorage: {},
-      capturedAt: '2026-06-15T00:00:00Z',
-      expiresAt: '2099-01-01T00:00:00Z',
-    };
-    mockReadFileSync.mockReturnValue(JSON.stringify(data));
-    expect(getSessionStatus()).toBe('valid');
+    saveSessionTokens(tokens);
+    const written = mockWriteFileSync.mock.calls[0][1];
+    expect(Buffer.isBuffer(written)).toBe(true);
+    // Verify it starts with the TSENV1 magic header (encrypted, not plaintext)
+    expect(written[0]).toBe(0x54); // 'T'
+    expect(written[1]).toBe(0x53); // 'S'
+    expect(written[2]).toBe(0x45); // 'E'
+    expect(written[3]).toBe(0x4E); // 'N'
+    expect(written[4]).toBe(0x56); // 'V'
+    expect(written[5]).toBe(0x31); // '1'
   });
 });

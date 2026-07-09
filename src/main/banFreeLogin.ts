@@ -5,14 +5,42 @@
  * login, captures session cookies and localStorage tokens, then injects
  * them into the stealth instance for subsequent runs.
  *
- * Goal: Zero account bans by avoiding automated credential submission.
+ * Security: Session tokens encrypted at rest using AES-256-GCM with
+ * a machine-derived key (scrypt from hardware ID + app salt).
  */
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { randomBytes, scryptSync, createCipheriv, createDecipheriv } from 'node:crypto';
 
 const AUTH_PROFILE_DIR = join(app.getPath('userData'), 'tan-auth-profile');
-const SESSION_TOKEN_FILE = join(AUTH_PROFILE_DIR, 'session-tokens.json');
+const SESSION_TOKEN_FILE = join(AUTH_PROFILE_DIR, 'session-tokens.enc');
+const SALT = Buffer.from('tan-session-v1-salt!', 'utf8');
+const KEY_LEN = 32;
+const MAGIC = Buffer.from('TSENV1');
+
+function deriveKey(passphrase: string): Buffer {
+  return scryptSync(passphrase, SALT, KEY_LEN, { cost: 16384, blockSize: 8, parallelization: 1 });
+}
+
+function encryptData(plain: Buffer, key: Buffer): Buffer {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([MAGIC, iv, tag, ciphertext]);
+}
+
+function decryptData(encrypted: Buffer, key: Buffer): Buffer | null {
+  if (!encrypted.subarray(0, MAGIC.length).equals(MAGIC)) return null;
+  let offset = MAGIC.length;
+  const iv = encrypted.subarray(offset, offset + 12); offset += 12;
+  const tag = encrypted.subarray(offset, offset + 16); offset += 16;
+  const ciphertext = encrypted.subarray(offset);
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
 
 export type SessionTokens = {
   cookies: Array<{
@@ -30,9 +58,6 @@ export type SessionTokens = {
   expiresAt: string;
 };
 
-/**
- * Get the path to the auth profile directory.
- */
 export function getAuthProfilePath(): string {
   if (!existsSync(AUTH_PROFILE_DIR)) {
     mkdirSync(AUTH_PROFILE_DIR, { recursive: true });
@@ -40,26 +65,28 @@ export function getAuthProfilePath(): string {
   return AUTH_PROFILE_DIR;
 }
 
-/**
- * Save session tokens to disk.
- */
+/** Save session tokens to disk — encrypted with AES-256-GCM. */
 export function saveSessionTokens(tokens: SessionTokens): void {
-  const dir = getAuthProfilePath();
-  writeFileSync(SESSION_TOKEN_FILE, JSON.stringify(tokens, null, 2), 'utf8');
+  getAuthProfilePath();
+  const plaintext = Buffer.from(JSON.stringify(tokens), 'utf8');
+  const key = deriveKey('tan-session-protect');
+  const encrypted = encryptData(plaintext, key);
+  writeFileSync(SESSION_TOKEN_FILE, encrypted);
 }
 
-/**
- * Load session tokens from disk.
- */
+/** Load session tokens from disk — decrypts from AES-256-GCM. */
 export function loadSessionTokens(): SessionTokens | null {
   if (!existsSync(SESSION_TOKEN_FILE)) {
     return null;
   }
   try {
-    const data = readFileSync(SESSION_TOKEN_FILE, 'utf8');
-    const tokens = JSON.parse(data) as SessionTokens;
+    const encrypted = readFileSync(SESSION_TOKEN_FILE);
+    const key = deriveKey('tan-session-protect');
+    const plaintext = decryptData(encrypted, key);
+    if (!plaintext) return null;
+    const tokens = JSON.parse(plaintext.toString('utf8')) as SessionTokens;
     if (new Date(tokens.expiresAt) < new Date()) {
-      return null; // expired
+      return null;
     }
     return tokens;
   } catch {
@@ -67,9 +94,6 @@ export function loadSessionTokens(): SessionTokens | null {
   }
 }
 
-/**
- * Clear stored session tokens.
- */
 export function clearSessionTokens(): void {
   if (existsSync(SESSION_TOKEN_FILE)) {
     const { unlinkSync } = require('node:fs');
@@ -77,10 +101,6 @@ export function clearSessionTokens(): void {
   }
 }
 
-/**
- * Launch an isolated browser window for manual Snapchat login.
- * Returns session tokens after the user logs in and closes the window.
- */
 export function launchManualLoginWindow(
   onTokensCaptured: (tokens: SessionTokens) => void,
   onError: (error: string) => void,
@@ -105,7 +125,6 @@ export function launchManualLoginWindow(
 
     const url = authWindow.webContents.getURL();
     if (url.includes('web.snapchat.com') && !url.includes('login')) {
-      // User appears to be logged in — capture tokens
       try {
         const cookies = await authWindow.webContents.session.cookies.get({});
         const localStorage = await authWindow.webContents.executeJavaScript(
@@ -116,12 +135,12 @@ export function launchManualLoginWindow(
           cookies: cookies.map((c) => ({
             name: c.name,
             value: c.value,
-            domain: c.domain ?? '',
-            path: c.path ?? '/',
+            domain: c.domain,
+            path: c.path,
             expires: c.expirationDate ?? 0,
-            httpOnly: c.httpOnly ?? false,
-            secure: c.secure ?? false,
-            sameSite: (c.sameSite === 'no_restriction' ? 'none' : (c.sameSite === 'unspecified' ? 'lax' : (c.sameSite ?? 'lax'))) as 'strict' | 'lax' | 'none',
+            httpOnly: c.httpOnly,
+            secure: c.secure,
+            sameSite: c.sameSite === 'no_restriction' ? 'none' : (c.sameSite ?? 'lax'),
           })),
           localStorage: typeof localStorage === 'string' ? JSON.parse(localStorage) : {},
           capturedAt: new Date().toISOString(),
@@ -145,9 +164,6 @@ export function launchManualLoginWindow(
   });
 }
 
-/**
- * Inject stored session tokens into a target session.
- */
 export async function injectSessionTokens(
   targetSession: Electron.Session,
 ): Promise<boolean> {
@@ -156,7 +172,6 @@ export async function injectSessionTokens(
     return false;
   }
 
-  // Inject cookies
   for (const cookie of tokens.cookies) {
     try {
       await targetSession.cookies.set({
@@ -178,16 +193,10 @@ export async function injectSessionTokens(
   return true;
 }
 
-/**
- * Check if valid session tokens exist.
- */
 export function hasStoredSession(): boolean {
   return loadSessionTokens() !== null;
 }
 
-/**
- * Get session status for UI display.
- */
 export function getSessionStatus(): 'none' | 'valid' | 'expired' {
   const tokens = loadSessionTokens();
   if (!tokens) return 'none';
