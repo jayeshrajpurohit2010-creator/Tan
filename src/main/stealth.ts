@@ -172,35 +172,20 @@ const SNAPCHAT_STEALTH = {
   `,
   connection: `
     try {
-      const connRtt = 30 + Math.floor(Math.random() * 40);
-      const connDownlink = 5 + Math.floor(Math.random() * 10);
-      const connObj = Object.create({
-        addEventListener: () => {},
-        removeEventListener: () => {},
-      });
-      Object.defineProperties(connObj, {
-        effectiveType: { get: () => '4g', configurable: true },
-        rtt: { get: () => connRtt, configurable: true },
-        downlink: { get: () => connDownlink, configurable: true },
-        saveData: { get: () => false, configurable: true },
-      });
+      // iOS Safari has no Network Information API — suppress entirely
+      delete Object.getPrototypeOf(navigator).connection;
       Object.defineProperty(navigator, 'connection', {
-        get: () => connObj,
+        get: () => undefined,
         configurable: true,
       });
     } catch (_) {}
   `,
   battery: `
     try {
+      // iOS Safari has no Battery API — suppress entirely
+      delete Object.getPrototypeOf(navigator).getBattery;
       Object.defineProperty(navigator, 'getBattery', {
-        get: () => () => Promise.resolve({
-          level: 0.85,
-          charging: true,
-          chargingTime: 0,
-          dischargingTime: Infinity,
-          addEventListener: () => {},
-          removeEventListener: () => {},
-        }),
+        get: () => undefined,
         configurable: true,
       });
     } catch (_) {}
@@ -282,20 +267,6 @@ const SNAPCHAT_STEALTH = {
     try {
       const OrigAudioContext = window.AudioContext || window.webkitAudioContext;
       if (OrigAudioContext) {
-        const origCreateOscillator = OrigAudioContext.prototype.createOscillator;
-        OrigAudioContext.prototype.createOscillator = function() {
-          const osc = origCreateOscillator.call(this);
-          const origGetFloatFrequencyData = osc.frequency?.getFloatFrequencyData;
-          if (origGetFloatFrequencyData) {
-            osc.frequency.getFloatFrequencyData = function(array) {
-              origGetFloatFrequencyData.call(this, array);
-              for (let i = 0; i < Math.min(array.length, 4); i++) {
-                array[i] += (Math.random() - 0.5) * 0.001;
-              }
-            };
-          }
-          return osc;
-        };
         const origCreateAnalyser = OrigAudioContext.prototype.createAnalyser;
         OrigAudioContext.prototype.createAnalyser = function() {
           const analyser = origCreateAnalyser.call(this);

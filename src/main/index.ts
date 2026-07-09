@@ -387,9 +387,10 @@ ipcMain.handle('tan:open-file', async (_event, filePath: string) => {
     throw new Error('Invalid file path.');
   }
   const vaultRoot = join(app.getPath('downloads'), 'Tan');
-  const normalizedPath = filePath.replace(/\//g, sep).replace(/\\/g, sep);
-  const normalizedVault = vaultRoot.replace(/\//g, sep).replace(/\\/g, sep);
-  if (!normalizedPath.startsWith(normalizedVault)) {
+  // CRITICAL: Use path.resolve() to canonicalize paths — startsWith() is bypassable with ../ segments
+  const resolvedVault = resolve(vaultRoot) + sep;
+  const resolvedPath = resolve(filePath);
+  if (!resolvedPath.startsWith(resolvedVault)) {
     throw new Error('Access denied: path is outside the vault directory.');
   }
   await shell.openPath(filePath);

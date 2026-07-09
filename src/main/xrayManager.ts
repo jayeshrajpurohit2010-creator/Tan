@@ -123,20 +123,20 @@ async function downloadXrayBinary(): Promise<string> {
     mkdirSync(xrayDir, { recursive: true });
   }
 
-  const { execSync } = await import('node:child_process');
+  const { execFileSync } = await import('node:child_process');
   const zipPath = join(xrayDir, fileName);
   const binaryName = platform === 'win32' ? 'xray.exe' : 'xray';
   const binaryPath = join(xrayDir, binaryName);
 
-  // Download
+  // CRITICAL: Use execFileSync with argument arrays to prevent command injection
   try {
     if (platform === 'win32') {
-      execSync(`curl -L -o "${zipPath}" "${downloadUrl}"`, { timeout: 60000 });
-      execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${xrayDir}' -Force"`, { timeout: 30000 });
+      execFileSync('curl', ['-L', '-o', zipPath, downloadUrl], { timeout: 60000 });
+      execFileSync('powershell', ['-Command', `Expand-Archive -Path '${zipPath}' -DestinationPath '${xrayDir}' -Force`], { timeout: 30000 });
     } else {
-      execSync(`curl -L -o "${zipPath}" "${downloadUrl}"`, { timeout: 60000 });
-      execSync(`unzip -o "${zipPath}" -d "${xrayDir}"`, { timeout: 30000 });
-      execSync(`chmod +x "${binaryPath}"`, { timeout: 5000 });
+      execFileSync('curl', ['-L', '-o', zipPath, downloadUrl], { timeout: 60000 });
+      execFileSync('unzip', ['-o', zipPath, '-d', xrayDir], { timeout: 30000 });
+      execFileSync('chmod', ['+x', binaryPath], { timeout: 5000 });
     }
     unlinkSync(zipPath);
     return binaryPath;

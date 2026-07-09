@@ -94,7 +94,7 @@ describe('stealth', () => {
 
   it('combined script contains AudioContext spoofing', () => {
     expect(ALL_STEALTH_SCRIPTS).toContain('AudioContext');
-    expect(ALL_STEALTH_SCRIPTS).toContain('createOscillator');
+    expect(ALL_STEALTH_SCRIPTS).toContain('createAnalyser');
   });
 
   it('combined script contains font spoofing', () => {
@@ -110,7 +110,9 @@ describe('stealth', () => {
     expect(ALL_STEALTH_SCRIPTS).toContain('onLine');
   });
 
-  it('combined script contains connection spoofing', () => {
-    expect(ALL_STEALTH_SCRIPTS).toContain('effectiveType');
+  it('combined script suppresses connection API', () => {
+    expect(ALL_STEALTH_SCRIPTS).toContain('Network Information');
+    expect(ALL_STEALTH_SCRIPTS).toContain('suppress');
+    expect(ALL_STEALTH_SCRIPTS).toContain('connection');
   });
 });
