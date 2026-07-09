@@ -16,6 +16,7 @@ export type CaptureControllerOptions = {
   onSyncEvent(event: SyncEvent): void;
   onPayloadPersisted(filePath: string): void;
   onSessionExpired?(): void;
+  onLivePreview?(preview: { id: string; thumbnailPath: string; mimeType: string; timestamp: string }): void;
 };
 
 type NetworkResponseReceived = {
@@ -306,6 +307,15 @@ export class CaptureController {
             this.options.onSyncEvent(toSyncEvent(record, this.queue.depth));
             if (record.savedPath) {
               this.options.onPayloadPersisted(record.savedPath);
+              // Emit live preview for images and videos
+              if (response.mimeType.startsWith('image/') || response.mimeType.startsWith('video/')) {
+                this.options.onLivePreview?.({
+                  id: record.id,
+                  thumbnailPath: record.savedPath,
+                  mimeType: response.mimeType,
+                  timestamp: record.timestamp,
+                });
+              }
             }
           }
         } catch (error) {

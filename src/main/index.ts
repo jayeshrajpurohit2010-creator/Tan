@@ -217,6 +217,7 @@ function createWindow(): void {
     onSessionExpired: () => {
       dashboardView?.webContents.send('tan:session-expired');
     },
+    onLivePreview: sendLivePreview,
   });
 
   streamEngine = new StreamReconstitutionEngine(
